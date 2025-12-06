@@ -63,7 +63,7 @@ def create_access_token(
 def create_refresh_token(
     user_id: int,
     refresh_token_ttl_days: int = 7,
-) -> tuple[str, str]:
+) -> dict:
     now = _now_utc()
     expire = now + timedelta(days=refresh_token_ttl_days)
     jti = str(uuid.uuid4())
@@ -77,7 +77,10 @@ def create_refresh_token(
         "exp": int(expire.timestamp()),
     }
     token = jwt.encode(payload, PRIVATE_KEY, algorithm=ALGORITHM)
-    return token, jti
+    return {
+        "token" : token,
+        "payload" : payload
+    }
 
 
 def decode_access_token(token: str) -> dict:

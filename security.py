@@ -1,10 +1,10 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
-from fastapi import HTTPException, status, Depends
+from fastapi import HTTPException, status, Depends, Cookie
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from passlib.context import CryptContext
 from jwt import ExpiredSignatureError, InvalidTokenError
 import uuid
@@ -111,7 +111,35 @@ def decode_access_token(token: str) -> dict:
 
     return payload
 
-def get_current_user(
+def decode_refresh_token(token: str) -> dict:
+    try:
+        payload = jwt.decode(
+            token,
+            PUBLIC_KEY,
+            algorithms=[ALGORITHM],
+            audience=ACCESS_AUDIENCE,
+            issuer=ISSUER,
+        )
+    except ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token expired",
+        )
+    except InvalidTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
+
+    if payload.get("type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Wrong token type",
+        )
+
+    return payload
+
+def get_current_user_with_access_token(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
@@ -125,6 +153,41 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive",
+        )
+
+    return user
+
+def get_current_user_with_refresh_token(
+    refresh_token : str | None = Cookie(None),
+    db: Session = Depends(get_db),
+) -> User:
+    if not refresh_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Token not found",
+        )
+    payload = decode_refresh_token(refresh_token)
+
+    user_id = int(payload["sub"])
+    jti = payload["jti"]
+
+    stmt = (
+                select(User)
+                .options(selectinload(User.refresh_tokens))
+                .where(User.id == user_id)
+            )
+    user = db.execute(stmt).scalar_one_or_none()
+
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+        )
+    
+    if jti not in (rt.jti for rt in user.refresh_tokens if not rt.revoked and rt.expires_at > _now_utc()):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token not found, revoked or expired",
         )
 
     return user

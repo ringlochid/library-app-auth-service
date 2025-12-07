@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Auth API Tester</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --accent: #22d3ee;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --error: #f87171;
+      --success: #4ade80;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: radial-gradient(circle at 20% 20%, rgba(34,211,238,0.08), transparent 25%),
+                  radial-gradient(circle at 80% 0%, rgba(74,222,128,0.1), transparent 25%),
+                  var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    h1 { margin: 0 0 12px; }
+    .grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    }
+    label { display: block; font-size: 0.9rem; margin-bottom: 4px; color: var(--muted); }
+    input {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      margin-bottom: 10px;
+    }
+    input::placeholder { color: rgba(255,255,255,0.5); }
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: #0b1224;
+      background: var(--accent);
+      font-weight: 600;
+      transition: transform 0.1s ease, box-shadow 0.1s ease;
+      width: 100%;
+    }
+    button:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(34,211,238,0.35); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row button { flex: 1 1 140px; }
+    .small { font-size: 0.85rem; color: var(--muted); margin-top: 6px; }
+    pre {
+      background: #0b1224;
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 10px;
+      padding: 12px;
+      color: #e0f2fe;
+      overflow: auto;
+      max-height: 300px;
+      margin: 0;
+      font-size: 0.9rem;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      background: rgba(34,211,238,0.15);
+      color: var(--text);
+      border: 1px solid rgba(34,211,238,0.3);
+      margin-top: 6px;
+      word-break: break-all;
+    }
+    .badge-success { color: var(--success); }
+    .badge-error { color: var(--error); }
+  </style>
+</head>
+<body>
+  <h1>Auth API Tester</h1>
+  <div class="card" style="margin-bottom:16px;">
+    <label for="baseUrl">Base URL</label>
+    <input id="baseUrl" type="text" value="http://127.0.0.1:8000" />
+    <div class="small">Use the same origin as the API so refresh/logout cookies work (serve this file from a local server, not file://).</div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Register</h3>
+      <label for="regName">Username</label>
+      <input id="regName" placeholder="alice" />
+      <label for="regEmail">Email</label>
+      <input id="regEmail" type="email" placeholder="alice@example.com" />
+      <label for="regPassword">Password</label>
+      <input id="regPassword" type="password" placeholder="secret" />
+      <button id="registerBtn">POST /auth/register</button>
+    </div>
+
+    <div class="card">
+      <h3>Login</h3>
+      <label for="loginName">Username (optional)</label>
+      <input id="loginName" placeholder="alice" />
+      <label for="loginEmail">Email (optional)</label>
+      <input id="loginEmail" type="email" placeholder="alice@example.com" />
+      <label for="loginPassword">Password</label>
+      <input id="loginPassword" type="password" placeholder="secret" />
+      <button id="loginBtn">POST /auth/login</button>
+      <div class="small">Login sets a refresh token httpOnly cookie (needs same-origin + credentials).</div>
+    </div>
+
+    <div class="card">
+      <h3>Tokens</h3>
+      <div id="accessTokenPill" class="pill">access token: <span id="accessTokenText">none</span></div>
+      <div class="row" style="margin-top:12px;">
+        <button id="meBtn">GET /auth/me</button>
+        <button id="adminBtn">GET /auth/admin-only/me</button>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <button id="refreshBtn">POST /auth/refresh</button>
+        <button id="logoutBtn">POST /auth/logout</button>
+      </div>
+      <div class="small">Protected calls send Authorization: Bearer &lt;access_token&gt;. Refresh/logout use the refresh cookie, so fetch runs with credentials.</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <h3>Response Log</h3>
+    <pre id="log"></pre>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const logEl = $("log");
+    let accessToken = null;
+
+    const log = (label, data, isError = false) => {
+      const time = new Date().toISOString();
+      const entry = { time, label, data };
+      const json = JSON.stringify(entry, null, 2);
+      logEl.textContent = json + "\n\n" + logEl.textContent;
+      if (isError) console.error(label, data);
+    };
+
+    const base = () => $("baseUrl").value.replace(/\/+$/, "");
+
+    const callApi = async (method, path, body, opts = {}) => {
+      const headers = { "Content-Type": "application/json" };
+      if (opts.auth && accessToken) {
+        headers["Authorization"] = `Bearer ${accessToken}`;
+      }
+      const res = await fetch(base() + path, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+        credentials: "include", // allow refresh/logout cookies
+      });
+      const text = await res.text();
+      let parsed = text;
+      try { parsed = text ? JSON.parse(text) : null; } catch (_) { /* ignore */ }
+      return { status: res.status, ok: res.ok, body: parsed };
+    };
+
+    $("registerBtn").onclick = async () => {
+      const payload = {
+        name: $("regName").value.trim(),
+        email: $("regEmail").value.trim(),
+        password: $("regPassword").value,
+      };
+      const res = await callApi("POST", "/auth/register", payload);
+      log("register", res, !res.ok);
+    };
+
+    $("loginBtn").onclick = async () => {
+      const payload = {
+        name: $("loginName").value.trim() || null,
+        email: $("loginEmail").value.trim() || null,
+        password: $("loginPassword").value,
+      };
+      const res = await callApi("POST", "/auth/login", payload);
+      log("login", res, !res.ok);
+      if (res.ok && res.body && res.body.access_token) {
+        accessToken = res.body.access_token;
+        $("accessTokenText").textContent = accessToken;
+      }
+    };
+
+    $("meBtn").onclick = async () => {
+      if (!accessToken) return log("me", { error: "No access token set" }, true);
+      const res = await callApi("GET", "/auth/me", null, { auth: true });
+      log("me", res, !res.ok);
+    };
+
+    $("adminBtn").onclick = async () => {
+      if (!accessToken) return log("admin/me", { error: "No access token set" }, true);
+      const res = await callApi("GET", "/auth/admin-only/me", null, { auth: true });
+      log("admin-only/me", res, !res.ok);
+    };
+
+    $("refreshBtn").onclick = async () => {
+      const res = await callApi("POST", "/auth/refresh", {});
+      log("refresh", res, !res.ok);
+      if (res.ok && res.body && res.body.access_token) {
+        accessToken = res.body.access_token;
+        $("accessTokenText").textContent = accessToken;
+      }
+    };
+
+    $("logoutBtn").onclick = async () => {
+      const res = await callApi("POST", "/auth/logout", {});
+      log("logout", res, !res.ok);
+    };
+  </script>
+</body>
+</html>

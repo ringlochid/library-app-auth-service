@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
-from typing import List, Annotated
-from fastapi import APIRouter, Depends, HTTPException, Cookie, Header, Response, Request
-from sqlalchemy.orm import Session, selectinload
+from typing import Annotated
+from fastapi import APIRouter, Depends, HTTPException, Header, Response, Request
+from sqlalchemy.orm import Session
 from sqlalchemy import select
 from ..database import get_db
 from ..models import User, RefreshToken
@@ -9,12 +9,16 @@ from ..security import _now_utc, hash_password, verify_password, create_access_t
 from ..schemas.user import UserCreate, UserRead, UserLogIn
 from ..schemas.token import AccessTokenResponse
 
-def get_request_meta(
-    request: Request,
-    user_agent: Annotated[str | None, Header(None, alias="User-Agent")] = None,
-):
-    ip = request.client.host if request.client else None
-    return {"ip": ip, "user_agent": user_agent}
+from fastapi import Request
+
+def get_request_meta(request: Request) -> dict:
+    meta = getattr(request.state, "meta", None)
+    if meta is None:
+        ip = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
+        meta = {"ip": ip, "user_agent": user_agent}
+    return meta
+
 
 router = APIRouter(prefix='/auth', tags=['auth'])
 
@@ -127,7 +131,7 @@ def revoke_refresh_token(
                         db : Session = Depends(get_db),
                          ):
     user_agent = meta["user_agent"]
-    
+
     for rt in user.refresh_tokens:
         if rt.revoked or rt.expires_at < _now_utc():
             continue

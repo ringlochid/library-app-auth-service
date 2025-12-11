@@ -10,10 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from passlib.context import CryptContext
 from jwt import ExpiredSignatureError, InvalidTokenError
+from redis.asyncio import Redis
 
 from app.settings import settings
 from app.database import get_db
 from app.models import User
+from app.redis_client import get_redis
+from app.cache import check_access_in_bl, make_access_blacklist_key
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
@@ -48,7 +51,7 @@ def create_access_token(
     user_id: uuid.UUID,
     is_admin: bool,
     expires_delta: Optional[timedelta] = None,
-) -> str:
+) -> tuple[str, str]:
     now = _now_utc()
     expire = now + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     jti = str(uuid.uuid4())
@@ -63,11 +66,12 @@ def create_access_token(
         "exp": int(expire.timestamp()),
     }
     token = jwt.encode(payload, PRIVATE_KEY, algorithm=ALGORITHM)
-    return token
+    return token, jti
 
 
 def create_refresh_token(
     user_id: uuid.UUID,
+    family_id: uuid.UUID,
     refresh_token_ttl_days: int | None = None,
 ) -> dict:
     now = _now_utc()
@@ -77,6 +81,7 @@ def create_refresh_token(
     payload = {
         "sub": str(user_id),
         "jti": jti,
+        "family_id" : str(family_id),
         "type": "refresh",
         "iss": ISSUER,
         "aud": ACCESS_AUDIENCE,
@@ -148,8 +153,16 @@ def decode_refresh_token(token: str) -> dict:
 async def get_current_user_with_access_token(
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
+    r : Redis = Depends(get_redis),
 ) -> User:
     payload = decode_access_token(token)
+    bl_key = make_access_blacklist_key(payload["jti"])
+    is_bl = await check_access_in_bl(bl_key, r)
+    if is_bl:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
     user_id = uuid.UUID(payload["sub"])
 
     stat = select(User).where(User.id == user_id)
@@ -174,7 +187,6 @@ async def get_current_user_with_refresh_token(
 
     payload = decode_refresh_token(refresh_token)
     user_id = uuid.UUID(payload["sub"])
-    jti = payload["jti"]
 
     stmt = (
         select(User)
@@ -188,14 +200,6 @@ async def get_current_user_with_refresh_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive",
-        )
-
-    if jti not in (
-        rt.jti for rt in user.refresh_tokens if not rt.revoked and rt.expires_at > _now_utc()
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token not found, revoked or expired",
         )
 
     return user

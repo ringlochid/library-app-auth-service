@@ -72,8 +72,9 @@ class RefreshToken(Base):
             postgresql_where=revoked == text("FALSE"),
         ),
         Index(
-            "ix_refresh_tokens_family_current",
+            "ux_refresh_tokens_family_current",
             family_id,
+            unique=True,
             postgresql_where=is_current == text("TRUE"),
         ),
     )

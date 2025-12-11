@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from typing import Annotated
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, Response, Request, Cookie
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,10 +14,15 @@ from app.security import (
     create_refresh_token,
     get_current_user_with_access_token,
     get_current_user_with_refresh_token,
+    decode_refresh_token,
 )
 from app.schemas.user import UserCreate, UserRead, UserLogIn
 from app.schemas.token import AccessTokenResponse
 from app.settings import settings
+from app.services.auth_tokens import reuse_detection
+from redis.asyncio import Redis
+from app.redis_client import get_redis
+from app.cache import make_access_blacklist_key, make_access_key, cache_access, get_access, cache_access_to_bl, check_access_in_bl
 
 
 def get_request_meta(request: Request) -> dict:
@@ -52,6 +58,7 @@ async def user_login(
     response: Response,
     db: AsyncSession = Depends(get_db),
     meta: dict = Depends(get_request_meta),
+    r : Redis = Depends(get_redis),
 ):
     if not user.email and not user.name:
         raise HTTPException(status_code=400, detail="Please use the user name or email to log in")
@@ -77,9 +84,19 @@ async def user_login(
 
     if not curr_user.is_active:
         raise HTTPException(status_code=403, detail="User is inactive")
+    
+    key = make_access_key(curr_user.id)
+    cached = await get_access(key, r)
+    if cached:
+        bl_key = make_access_blacklist_key(cached)
+        await cache_access_to_bl(bl_key, r)
 
-    access_token = create_access_token(curr_user.id, curr_user.is_admin)
-    refresh_token_details = create_refresh_token(curr_user.id)
+    access_token, ac_jti = create_access_token(curr_user.id, curr_user.is_admin)
+
+    await cache_access(key, ac_jti, r)
+
+    family_id = uuid.uuid4()
+    refresh_token_details = create_refresh_token(curr_user.id, family_id)
     refresh_token = refresh_token_details["token"]
     jti = refresh_token_details["payload"]["jti"]
     issued_at = datetime.fromtimestamp(refresh_token_details["payload"]["iat"], tz=timezone.utc)
@@ -89,6 +106,7 @@ async def user_login(
     ip_address = meta["ip"]
     new_refresh_token = RefreshToken(
         jti=jti,
+        family_id=family_id,
         user_id=curr_user.id,
         issued_at=issued_at,
         expires_at=expires_at,
@@ -112,8 +130,60 @@ async def user_login(
 
 
 @router.post("/refresh", response_model=AccessTokenResponse)
-async def reissue_access_token(user: User = Depends(get_current_user_with_refresh_token)):
-    new_access_token = create_access_token(user.id, user.is_admin)
+async def reissue_access_token(
+    response: Response,
+    refresh_token: str | None = Cookie(None),
+    user: User = Depends(get_current_user_with_refresh_token),
+    db: AsyncSession = Depends(get_db),
+    meta: dict = Depends(get_request_meta),
+    r : Redis = Depends(get_redis),
+):
+    if not refresh_token:
+        raise HTTPException(status_code=400, detail="Token not found")
+
+    payload = decode_refresh_token(refresh_token)
+    family_id = uuid.UUID(payload["family_id"])
+    old_refresh_token = await reuse_detection(
+        user_id=user.id,
+        jti=payload["jti"],
+        family_id=family_id,
+        db=db,
+    )
+    old_refresh_token.is_current = False
+
+    refresh_token_details = create_refresh_token(user.id, family_id)
+    new_refresh_token_str = refresh_token_details["token"]
+    rt_payload = refresh_token_details["payload"]
+    issued_at = datetime.fromtimestamp(rt_payload["iat"], tz=timezone.utc)
+    expires_at = datetime.fromtimestamp(rt_payload["exp"], tz=timezone.utc)
+
+    new_refresh_token = RefreshToken(
+        jti=rt_payload["jti"],
+        family_id=family_id,
+        user_id=user.id,
+        issued_at=issued_at,
+        expires_at=expires_at,
+        user_agent=meta.get("user_agent") if meta else None,
+        ip_address=meta.get("ip") if meta else None,
+    )
+    db.add(new_refresh_token)
+
+    await db.commit()
+    response.set_cookie(
+        key="refresh_token",
+        value=new_refresh_token_str,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite="lax",
+        path="/auth",
+    )
+    key = make_access_key(user.id)
+    cached = await get_access(key, r)
+    if cached:
+        bl_key = make_access_blacklist_key(cached)
+        await cache_access_to_bl(bl_key, r)
+    new_access_token, ac_jti = create_access_token(user.id, user.is_admin)
+    await cache_access(key, ac_jti, r)
     return {"access_token": new_access_token, "token_type": "bearer"}
 
 
@@ -124,6 +194,7 @@ async def revoke_refresh_token(
     meta: dict = Depends(get_request_meta),
     user: User = Depends(get_current_user_with_refresh_token),
     db: AsyncSession = Depends(get_db),
+    r : Redis = Depends(get_redis),
 ):
     user_agent = meta["user_agent"]
 
@@ -135,6 +206,12 @@ async def revoke_refresh_token(
         rt.revoked = True
 
     response.delete_cookie(key="refresh_token", path="/auth")
+
+    key = make_access_key(user.id)
+    cached = await get_access(key, r)
+    if cached:
+        bl_key = make_access_blacklist_key(cached)
+        await cache_access_to_bl(bl_key, r)
 
     await db.commit()
 

@@ -1,10 +1,9 @@
 import os
-from typing import Optional
 
 from fastapi import Request
 from redis.asyncio import Redis, from_url
 
-_redis: Optional[Redis] = None
+_redis: Redis | None = None
 
 
 def _build_redis_url() -> str:
@@ -22,7 +21,6 @@ REDIS_URL = _build_redis_url()
 
 
 async def init_redis() -> Redis:
-    """Create or return the singleton async Redis client for the process."""
     global _redis
     if _redis is None:
         _redis = from_url(
@@ -39,7 +37,7 @@ async def close_redis():
         _redis = None
 
 
-async def get_redis(request: Request | None = None) -> Redis:
+async def get_redis(request: Request) -> Redis:
     if request is not None and hasattr(request.app.state, "redis"):
         return request.app.state.redis
     return await init_redis()

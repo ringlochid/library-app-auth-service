@@ -1,7 +1,14 @@
-from pydantic import BaseSettings, AnyUrl
+from pydantic import AnyUrl
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=(".env", "../.env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
     DATABASE_URL: AnyUrl
     REDIS_URL: AnyUrl
 
@@ -13,10 +20,6 @@ class Settings(BaseSettings):
     JWT_ISSUER: str = "auth-service"
     JWT_AUDIENCE: str = "backend-services"
     COOKIE_SECURE: bool = False
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
 
 
 settings = Settings()

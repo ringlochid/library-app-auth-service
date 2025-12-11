@@ -1,5 +1,6 @@
 from datetime import datetime
-from pydantic import BaseModel
+import uuid
+from pydantic import BaseModel, ConfigDict
 
 class UserLogIn(BaseModel):
     name : str | None = None
@@ -14,11 +15,11 @@ class UserCreate(UserBase):
     password: str
 
 class UserRead(UserBase):
-    id: int
+    id: uuid.UUID
     created_at: datetime
     updated_at: datetime
     is_active: bool
     is_admin: bool
+    scopes: list[str]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

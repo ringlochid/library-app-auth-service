@@ -1,9 +1,22 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from app.redis_client import close_redis
+
+from app.redis_client import close_redis, init_redis
 from app.routers import auth
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.redis = await init_redis()
+    try:
+        yield
+    finally:
+        await close_redis()
+
+
+app = FastAPI(lifespan=lifespan)
 
 origins = [
     "http://127.0.0.1:5500",
@@ -28,11 +41,6 @@ async def add_request_meta(request: Request, call_next):
     request.state.meta = {"ip": ip, "user_agent": user_agent}
     response = await call_next(request)
     return response
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    await close_redis()
 
 
 app.include_router(auth.router)

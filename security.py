@@ -45,7 +45,7 @@ def _now_utc() -> datetime:
 
 
 def create_access_token(
-    user_id: int,
+    user_id: uuid.UUID,
     is_admin: bool,
     expires_delta: Optional[timedelta] = None,
 ) -> str:
@@ -67,7 +67,7 @@ def create_access_token(
 
 
 def create_refresh_token(
-    user_id: int,
+    user_id: uuid.UUID,
     refresh_token_ttl_days: int | None = None,
 ) -> dict:
     now = _now_utc()
@@ -150,7 +150,7 @@ async def get_current_user_with_access_token(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     payload = decode_access_token(token)
-    user_id = int(payload["sub"])
+    user_id = uuid.UUID(payload["sub"])
 
     stat = select(User).where(User.id == user_id)
     result = await db.execute(stat)
@@ -173,7 +173,7 @@ async def get_current_user_with_refresh_token(
         raise HTTPException(status_code=400, detail="Token not found")
 
     payload = decode_refresh_token(refresh_token)
-    user_id = int(payload["sub"])
+    user_id = uuid.UUID(payload["sub"])
     jti = payload["jti"]
 
     stmt = (

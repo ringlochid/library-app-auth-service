@@ -48,7 +48,6 @@ async def token_bucket_allow(
     """
     r = r or await init_redis()
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-    # store as hash: tokens, last_refill_ms
     bucket = await r.hgetall(key)
     tokens_raw = bucket.get("tokens") if bucket else None
     last_refill_raw = bucket.get("last_refill_ms") if bucket else None
@@ -57,17 +56,14 @@ async def token_bucket_allow(
     last_refill = int(last_refill_raw) if last_refill_raw is not None else now_ms
 
     elapsed_ms = max(0, now_ms - last_refill)
-    # tokens added since last refill
     tokens += (elapsed_ms / (refill_period_seconds * 1000)) * refill_tokens
     if tokens > capacity:
         tokens = capacity
 
     if tokens < 1:
-        # no tokens left; do not update bucket
         return False, int(tokens)
 
     tokens -= 1
     await r.hset(key, mapping={"tokens": str(tokens), "last_refill_ms": str(now_ms)})
-    # expire the bucket after a quiet period
     await r.expire(key, max(refill_period_seconds, 1))
     return True, int(tokens)

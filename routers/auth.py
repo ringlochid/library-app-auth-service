@@ -22,7 +22,15 @@ from app.settings import settings
 from app.services.auth_tokens import reuse_detection
 from redis.asyncio import Redis
 from app.redis_client import get_redis
-from app.cache import make_access_blacklist_key, make_access_key, cache_access, get_access, cache_access_to_bl, check_access_in_bl
+from app.cache import (
+    make_access_blacklist_key,
+    make_access_key,
+    cache_access,
+    get_access,
+    cache_access_to_bl,
+    token_bucket_allow,
+    make_rate_limit_key,
+)
 
 
 def get_request_meta(request: Request) -> dict:
@@ -60,6 +68,16 @@ async def user_login(
     meta: dict = Depends(get_request_meta),
     r : Redis = Depends(get_redis),
 ):
+    ip = meta.get("ip") if meta else None
+    allowed, remaining = await token_bucket_allow(
+        make_rate_limit_key("login", ip or "unknown"),
+        capacity=5,
+        refill_tokens=5,
+        refill_period_seconds=60,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(status_code=429, detail="Too many login attempts")
     if not user.email and not user.name:
         raise HTTPException(status_code=400, detail="Please use the user name or email to log in")
     if user.email and user.name:
@@ -136,12 +154,22 @@ async def reissue_access_token(
     user: User = Depends(get_current_user_with_refresh_token),
     db: AsyncSession = Depends(get_db),
     meta: dict = Depends(get_request_meta),
-    r : Redis = Depends(get_redis),
+    r: Redis = Depends(get_redis),
 ):
     if not refresh_token:
         raise HTTPException(status_code=400, detail="Token not found")
 
     payload = decode_refresh_token(refresh_token)
+    ip = meta.get("ip") if meta else None
+    allowed, remaining = await token_bucket_allow(
+        make_rate_limit_key("refresh", ip or "unknown"),
+        capacity=30,
+        refill_tokens=30,
+        refill_period_seconds=60,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(status_code=429, detail="Too many refresh attempts")
     family_id = uuid.UUID(payload["family_id"])
     old_refresh_token = await reuse_detection(
         user_id=user.id,

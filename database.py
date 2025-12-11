@@ -1,19 +1,12 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import (
-    sessionmaker, declarative_base
-)
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine, AsyncSession
+from sqlalchemy.orm import declarative_base
+from app.settings import settings
 
-DATABASEURL = "postgresql+psycopg://postgres:123456@localhost:5432/auth-service-app"
-
-engine = create_engine(DATABASEURL, echo=True, future=True, pool_size=5, max_overflow=10)
-
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+engine = create_async_engine(str(settings.DATABASE_URL), echo=False, future=True)
+AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
 
 Base = declarative_base()
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+async def get_db() -> AsyncSession:
+    async with AsyncSessionLocal() as session:
+        yield session

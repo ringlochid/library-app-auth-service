@@ -1,5 +1,5 @@
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Annotated
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, Request, Cookie
@@ -52,7 +52,22 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=UserRead)
-async def create_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
+async def create_user(
+    user: UserCreate,
+    db: AsyncSession = Depends(get_db),
+    meta: dict = Depends(get_request_meta),
+    r: Redis = Depends(get_redis),
+):
+    ip = meta.get("ip") if meta else None
+    allowed, _ = await token_bucket_allow(
+        make_rate_limit_key("register", ip or "unknown"),
+        capacity=settings.RATE_LIMIT_REGISTER_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_REGISTER_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_REGISTER_REFILL_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(status_code=429, detail="Too many registration attempts")
     stmt = select(User).where((User.email == user.email) | (User.name == user.name))
     existing = (await db.execute(stmt)).scalar_one_or_none()
     if existing:
@@ -61,6 +76,8 @@ async def create_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
     hashed_pwd = hash_password(user.password)
     new_user = User(name=user.name, email=user.email, hashed_password=hashed_pwd)
     db.add(new_user)
+    # set expiry for unverified accounts
+    new_user.expires_at = _now_utc() + timedelta(days=settings.UNVERIFIED_USER_EXPIRE_DAYS)
     await db.commit()
     await db.refresh(new_user)
     return new_user
@@ -103,9 +120,15 @@ async def user_login(
     if not curr_user:
         raise HTTPException(status_code=401, detail="User not found")
 
+    if curr_user.expires_at and curr_user.expires_at <= _now_utc():
+        raise HTTPException(status_code=403, detail="Account expired")
+
     ok, new_hash = verify_password(user.password, curr_user.hashed_password)
     if not ok:
         raise HTTPException(status_code=401, detail="Password incorrect")
+    
+    if not curr_user.email_verified_at:
+        raise HTTPException(status_code=403, detail="Email not verified")
 
     if new_hash is not None:
         curr_user.hashed_password = new_hash
@@ -295,6 +318,7 @@ async def commit_email_verification(token : str | None = Query(None, description
     digest = hashlib.sha256(token.encode()).hexdigest()
     stmt = (
             select(VerificationToken)
+            .options(selectinload(VerificationToken.user))
             .where(
                 VerificationToken.token_hash == digest,
                 VerificationToken.expires_at > func.now(),
@@ -308,6 +332,12 @@ async def commit_email_verification(token : str | None = Query(None, description
     if not vt:
         raise HTTPException(status_code=400, detail="Invalid or expired token")
     vt.used_at = func.now()
+    #mark user as verified
+    user = vt.user
+    if user:
+        if user.email_verified_at is None:
+            user.email_verified_at = func.now()
+        user.expires_at = None
     await db.commit()
 
 

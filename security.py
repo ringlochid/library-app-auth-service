@@ -230,6 +230,8 @@ async def get_current_user_with_access_token(
             scopes=cached.get("scopes", []),
             created_at=datetime.fromisoformat(cached["created_at"]) if cached.get("created_at") else None,
             updated_at=datetime.fromisoformat(cached["updated_at"]) if cached.get("updated_at") else None,
+            email_verified_at=datetime.fromisoformat(cached["email_verified_at"]) if cached.get("email_verified_at") else None,
+            expires_at=datetime.fromisoformat(cached["expires_at"]) if cached.get("expires_at") else None,
         )
 
     stat = select(User).where(User.id == user_id)
@@ -240,6 +242,16 @@ async def get_current_user_with_access_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive",
+        )
+    if user.expires_at and user.expires_at <= _now_utc():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account expired",
+        )
+    if user.email_verified_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email not verified",
         )
 
     await cache_user(
@@ -253,6 +265,8 @@ async def get_current_user_with_access_token(
             "scopes": user.scopes,
             "created_at": user.created_at.isoformat() if user.created_at else "",
             "updated_at": user.updated_at.isoformat() if user.updated_at else "",
+            "email_verified_at": user.email_verified_at.isoformat() if user.email_verified_at else "",
+            "expires_at": user.expires_at.isoformat() if user.expires_at else "",
         },
         r,
     )
@@ -282,6 +296,11 @@ async def get_current_user_with_refresh_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive",
+        )
+    if user.expires_at and user.expires_at <= _now_utc():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account expired",
         )
 
     return user

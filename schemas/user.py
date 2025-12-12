@@ -40,5 +40,6 @@ class UserRead(UserBase):
     is_active: bool
     is_admin: bool
     scopes: list[str]
+    email_verified_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)

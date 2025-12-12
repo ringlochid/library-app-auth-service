@@ -4,10 +4,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from redis.asyncio import Redis
 
+from app.settings import settings
 from app.redis_client import get_redis
 from app.security import _now_utc
 from app.models import RefreshToken
-from app.cache import make_access_blacklist_key, cache_access_to_bl
+from app.cache import (
+    get_access,
+    make_access_blacklist_key,
+    cache_access_to_bl,
+    make_access_key,
+)
 
 
 async def reuse_detection(
@@ -47,9 +53,18 @@ async def reuse_detection(
             t.revoked = True
             t.is_current = False
         await db.commit()
+        ac_key = make_access_key(user_id)
+        ac_cached = await get_access(ac_key, r)
+        if ac_cached:
+            ac_jti = ac_cached.get("jti")
+            ac_exp = ac_cached.get("exp")
+            bl_ttl = (
+                max(int(ac_exp - _now_utc().timestamp()), 1)
+                if ac_exp
+                else settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+            )
+            bl_key = make_access_blacklist_key(ac_jti)
+            await cache_access_to_bl(bl_key, r, bl_ttl)
         raise HTTPException(403, "Token reuse detected, logging out")
-
-    bl_key = make_access_blacklist_key(jti)
-    await cache_access_to_bl(bl_key, r)
 
     return presented

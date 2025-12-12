@@ -57,7 +57,7 @@ def create_access_token(
     user_id: uuid.UUID,
     is_admin: bool,
     expires_delta: Optional[timedelta] = None,
-) -> tuple[str, str]:
+) -> tuple[str, str, int]:
     now = _now_utc()
     expire = now + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     jti = str(uuid.uuid4())
@@ -72,7 +72,7 @@ def create_access_token(
         "exp": int(expire.timestamp()),
     }
     token = jwt.encode(payload, PRIVATE_KEY, algorithm=ALGORITHM)
-    return token, jti
+    return token, jti, int(expire.timestamp())
 
 
 def create_refresh_token(
@@ -97,9 +97,10 @@ def create_refresh_token(
     token = jwt.encode(payload, PRIVATE_KEY, algorithm=ALGORITHM)
     return {"token": token, "payload": payload}
 
+
 def create_verify_email_token(
     user_id: uuid.UUID,
-    email : str,
+    email: str,
     expires_delta: Optional[timedelta] = None,
 ) -> dict:
     now = _now_utc()
@@ -108,7 +109,7 @@ def create_verify_email_token(
     payload = {
         "sub": str(user_id),
         "jti": jti,
-        "email" : email,
+        "email": email,
         "type": "email_verification",
         "iss": ISSUER,
         "aud": ACCESS_AUDIENCE,
@@ -117,6 +118,7 @@ def create_verify_email_token(
     }
     token = jwt.encode(payload, PRIVATE_KEY, algorithm=ALGORITHM)
     return {"token": token, "payload": payload}
+
 
 def decode_access_token(token: str) -> dict:
     try:
@@ -175,6 +177,7 @@ def decode_refresh_token(token: str) -> dict:
 
     return payload
 
+
 def decode_email_verification_token(token: str) -> dict:
     try:
         payload = jwt.decode(
@@ -203,6 +206,7 @@ def decode_email_verification_token(token: str) -> dict:
 
     return payload
 
+
 async def get_current_user_with_access_token(
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
@@ -228,10 +232,26 @@ async def get_current_user_with_access_token(
             is_active=cached["is_active"],
             is_admin=cached["is_admin"],
             scopes=cached.get("scopes", []),
-            created_at=datetime.fromisoformat(cached["created_at"]) if cached.get("created_at") else None,
-            updated_at=datetime.fromisoformat(cached["updated_at"]) if cached.get("updated_at") else None,
-            email_verified_at=datetime.fromisoformat(cached["email_verified_at"]) if cached.get("email_verified_at") else None,
-            expires_at=datetime.fromisoformat(cached["expires_at"]) if cached.get("expires_at") else None,
+            created_at=(
+                datetime.fromisoformat(cached["created_at"])
+                if cached.get("created_at")
+                else None
+            ),
+            updated_at=(
+                datetime.fromisoformat(cached["updated_at"])
+                if cached.get("updated_at")
+                else None
+            ),
+            email_verified_at=(
+                datetime.fromisoformat(cached["email_verified_at"])
+                if cached.get("email_verified_at")
+                else None
+            ),
+            expires_at=(
+                datetime.fromisoformat(cached["expires_at"])
+                if cached.get("expires_at")
+                else None
+            ),
         )
 
     stat = select(User).where(User.id == user_id)
@@ -265,7 +285,9 @@ async def get_current_user_with_access_token(
             "scopes": user.scopes,
             "created_at": user.created_at.isoformat() if user.created_at else "",
             "updated_at": user.updated_at.isoformat() if user.updated_at else "",
-            "email_verified_at": user.email_verified_at.isoformat() if user.email_verified_at else "",
+            "email_verified_at": (
+                user.email_verified_at.isoformat() if user.email_verified_at else ""
+            ),
             "expires_at": user.expires_at.isoformat() if user.expires_at else "",
         },
         r,

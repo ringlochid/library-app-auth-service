@@ -62,7 +62,7 @@ class User(Base):
         cascade="all, delete-orphan",
     )
 
-    verification_tokens : Mapped[List["VerificationToken"]] = relationship(
+    verification_tokens: Mapped[List["VerificationToken"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )
@@ -124,8 +124,12 @@ class VerificationToken(Base):
     purpose: Mapped[str] = mapped_column(
         String(64), nullable=False, server_default=text("'email_verification'")
     )
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -134,6 +138,4 @@ class VerificationToken(Base):
 
     user: Mapped["User"] = relationship(back_populates="verification_tokens")
 
-    __table_args__ = (
-        Index("ix_verification_tokens_expires_at", expires_at),
-    )
+    __table_args__ = (Index("ix_verification_tokens_expires_at", expires_at),)

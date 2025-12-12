@@ -30,7 +30,11 @@ async def send_email(
         msg,
         hostname=host or os.getenv("MAIL_HOST") or getattr(settings, "MAIL_HOST", None),
         port=port or int(os.getenv("MAIL_PORT", "587")),
-        username=username or os.getenv("MAIL_USER") or getattr(settings, "MAIL_USER", None),
-        password=password or os.getenv("MAIL_PASSWORD") or getattr(settings, "MAIL_PASSWORD", None),
+        username=username
+        or os.getenv("MAIL_USER")
+        or getattr(settings, "MAIL_USER", None),
+        password=password
+        or os.getenv("MAIL_PASSWORD")
+        or getattr(settings, "MAIL_PASSWORD", None),
         start_tls=start_tls,
     )

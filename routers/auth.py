@@ -1,6 +1,5 @@
 import hashlib
 from datetime import datetime, timezone, timedelta
-from typing import Annotated
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, Request, Cookie
 from sqlalchemy import select, func, text
@@ -34,6 +33,7 @@ from app.cache import (
     cache_access,
     get_access,
     cache_access_to_bl,
+    delete_cached_user,
     token_bucket_allow,
     make_rate_limit_key,
 )
@@ -77,7 +77,9 @@ async def create_user(
     new_user = User(name=user.name, email=user.email, hashed_password=hashed_pwd)
     db.add(new_user)
     # set expiry for unverified accounts
-    new_user.expires_at = _now_utc() + timedelta(days=settings.UNVERIFIED_USER_EXPIRE_DAYS)
+    new_user.expires_at = _now_utc() + timedelta(
+        days=settings.UNVERIFIED_USER_EXPIRE_DAYS
+    )
     await db.commit()
     await db.refresh(new_user)
     return new_user
@@ -126,12 +128,14 @@ async def user_login(
     ok, new_hash = verify_password(user.password, curr_user.hashed_password)
     if not ok:
         raise HTTPException(status_code=401, detail="Password incorrect")
-    
+
     if not curr_user.email_verified_at:
         raise HTTPException(status_code=403, detail="Email not verified")
 
+    user_mutated = False
     if new_hash is not None:
         curr_user.hashed_password = new_hash
+        user_mutated = True
 
     if not curr_user.is_active:
         raise HTTPException(status_code=403, detail="User is inactive")
@@ -139,12 +143,19 @@ async def user_login(
     key = make_access_key(curr_user.id)
     cached = await get_access(key, r)
     if cached:
-        bl_key = make_access_blacklist_key(cached)
-        await cache_access_to_bl(bl_key, r)
+        cached_jti = cached.get("jti")
+        cached_exp = cached.get("exp")
+        bl_ttl = (
+            max(int(cached_exp - _now_utc().timestamp()), 1)
+            if cached_exp
+            else settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        )
+        bl_key = make_access_blacklist_key(cached_jti)
+        await cache_access_to_bl(bl_key, r, ttl=bl_ttl)
 
-    access_token, ac_jti = create_access_token(curr_user.id, curr_user.is_admin)
+    access_token, ac_jti, ac_exp = create_access_token(curr_user.id, curr_user.is_admin)
 
-    await cache_access(key, ac_jti, r)
+    await cache_access(key, ac_jti, ac_exp, r)
 
     family_id = uuid.uuid4()
     refresh_token_details = create_refresh_token(curr_user.id, family_id)
@@ -181,6 +192,8 @@ async def user_login(
     )
 
     await db.commit()
+    if user_mutated:
+        await delete_cached_user(curr_user.id, r)
     return {"access_token": access_token, "token_type": "bearer"}
 
 
@@ -197,6 +210,7 @@ async def reissue_access_token(
         raise HTTPException(status_code=400, detail="Token not found")
 
     payload = decode_refresh_token(refresh_token)
+    now_ts = _now_utc().timestamp()
     ip = meta.get("ip") if meta else None
     allowed, remaining = await token_bucket_allow(
         make_rate_limit_key("refresh", ip or "unknown"),
@@ -245,10 +259,17 @@ async def reissue_access_token(
     key = make_access_key(user.id)
     cached = await get_access(key, r)
     if cached:
-        bl_key = make_access_blacklist_key(cached)
-        await cache_access_to_bl(bl_key, r)
-    new_access_token, ac_jti = create_access_token(user.id, user.is_admin)
-    await cache_access(key, ac_jti, r)
+        cached_jti = cached.get("jti")
+        cached_exp = cached.get("exp")
+        bl_ttl = (
+            max(int(cached_exp - now_ts), 1)
+            if cached_exp
+            else settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        )
+        bl_key = make_access_blacklist_key(cached_jti)
+        await cache_access_to_bl(bl_key, r, ttl=bl_ttl)
+    new_access_token, ac_jti, ac_exp = create_access_token(user.id, user.is_admin)
+    await cache_access(key, ac_jti, ac_exp, r)
     return {"access_token": new_access_token, "token_type": "bearer"}
 
 
@@ -275,20 +296,77 @@ async def revoke_refresh_token(
     key = make_access_key(user.id)
     cached = await get_access(key, r)
     if cached:
-        bl_key = make_access_blacklist_key(cached)
-        await cache_access_to_bl(bl_key, r)
+        cached_jti = cached.get("jti")
+        cached_exp = cached.get("exp")
+        bl_ttl = (
+            max(int(cached_exp - _now_utc().timestamp()), 1)
+            if cached_exp
+            else settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        )
+        bl_key = make_access_blacklist_key(cached_jti)
+        await cache_access_to_bl(bl_key, r, ttl=bl_ttl)
 
     await db.commit()
 
+
 @router.post("/verify-email/send", status_code=202)
-async def send_email_verification(payload : EmailBase, db : AsyncSession = Depends(get_db)):
+async def send_email_verification(
+    payload: EmailBase,
+    db: AsyncSession = Depends(get_db),
+    meta: dict = Depends(get_request_meta),
+    r: Redis = Depends(get_redis),
+):
+    ip = meta.get("ip") if meta else None
     email = payload.email
     if not email:
-        raise HTTPException(status_code=400, detail='email not valid')
-    stmt = select(User).options(selectinload(User.verification_tokens)).where(User.email == email.lower())
+        raise HTTPException(status_code=400, detail="email not valid")
+    # IP rate limit
+    allowed_ip, _ = await token_bucket_allow(
+        make_rate_limit_key("verify_send", ip or "unknown"),
+        capacity=settings.RATE_LIMIT_VERIFY_SEND_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_VERIFY_SEND_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_VERIFY_SEND_REFILL_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed_ip:
+        raise HTTPException(
+            status_code=429, detail="Too many verification requests from this IP"
+        )
+    # domain rate limit
+    domain = email.split("@")[-1].lower()
+    allowed_domain, _ = await token_bucket_allow(
+        make_rate_limit_key("verify_domain", domain),
+        capacity=settings.RATE_LIMIT_VERIFY_DOMAIN_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_VERIFY_DOMAIN_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_VERIFY_DOMAIN_REFILL_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed_domain:
+        raise HTTPException(
+            status_code=429, detail="Too many verification requests for this domain"
+        )
+    # email rate limit
+    allowed_email, _ = await token_bucket_allow(
+        make_rate_limit_key("verify_email", email.lower()),
+        capacity=settings.RATE_LIMIT_VERIFY_EMAIL_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_VERIFY_EMAIL_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_VERIFY_EMAIL_REFILL_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed_email:
+        raise HTTPException(
+            status_code=429, detail="Too many verification requests for this email"
+        )
+    stmt = (
+        select(User)
+        .options(selectinload(User.verification_tokens))
+        .where(User.email == email.lower())
+    )
     user = (await db.execute(stmt)).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    if user.email_verified_at is not None:
+        raise HTTPException(status_code=400, detail="Email already verified")
     if user.verification_tokens:
         for vt in user.verification_tokens:
             if vt.used_at is None:
@@ -298,47 +376,54 @@ async def send_email_verification(payload : EmailBase, db : AsyncSession = Depen
     digest = hashlib.sha256(verification_token.encode()).hexdigest()
     vt_payload = verification_token_details["payload"]
     new_vt = VerificationToken(
-        user_id = user.id,
-        token_hash = digest,
-        expires_at = datetime.fromtimestamp(vt_payload["exp"], tz=timezone.utc),
-        created_at = datetime.fromtimestamp(vt_payload["iat"], tz=timezone.utc)
+        user_id=user.id,
+        token_hash=digest,
+        expires_at=datetime.fromtimestamp(vt_payload["exp"], tz=timezone.utc),
+        created_at=datetime.fromtimestamp(vt_payload["iat"], tz=timezone.utc),
     )
     db.add(new_vt)
     await db.commit()
-    #test
+    # test
     verify_url = f"{settings.EMAIL_VERIFY_BASE_URL}{verification_token}"
     body = f"your verification link is : {verify_url}"
     await send_email(to_addr=email, subject="verification", body=body)
 
+
 @router.get("/verify-email", status_code=204)
-async def commit_email_verification(token : str | None = Query(None, description="the email verification token"), db : AsyncSession = Depends(get_db)):
+async def commit_email_verification(
+    token: str | None = Query(None, description="the email verification token"),
+    db: AsyncSession = Depends(get_db),
+    r: Redis = Depends(get_redis),
+):
     if token is None:
         raise HTTPException(status_code=400, detail="Token is required")
     payload = decode_email_verification_token(token)
     digest = hashlib.sha256(token.encode()).hexdigest()
     stmt = (
-            select(VerificationToken)
-            .options(selectinload(VerificationToken.user))
-            .where(
-                VerificationToken.token_hash == digest,
-                VerificationToken.expires_at > func.now(),
-                VerificationToken.used_at.is_(None),
-                VerificationToken.user_id == uuid.UUID(payload["sub"]),
-                VerificationToken.user.has(email=payload["email"].lower()),
-            )
+        select(VerificationToken)
+        .options(selectinload(VerificationToken.user))
+        .where(
+            VerificationToken.token_hash == digest,
+            VerificationToken.expires_at > func.now(),
+            VerificationToken.used_at.is_(None),
+            VerificationToken.user_id == uuid.UUID(payload["sub"]),
+            VerificationToken.user.has(email=payload["email"].lower()),
+        )
     )
     raw_vt = await db.execute(stmt)
     vt = raw_vt.scalar_one_or_none()
     if not vt:
         raise HTTPException(status_code=400, detail="Invalid or expired token")
     vt.used_at = func.now()
-    #mark user as verified
+    # mark user as verified
     user = vt.user
     if user:
         if user.email_verified_at is None:
             user.email_verified_at = func.now()
         user.expires_at = None
     await db.commit()
+    if user:
+        await delete_cached_user(user.id, r)
 
 
 @router.get("/me", response_model=UserRead)

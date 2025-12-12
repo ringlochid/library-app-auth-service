@@ -1,13 +1,16 @@
 import json
-from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
-from redis.asyncio import Redis
+import math
 import uuid
+from datetime import datetime, timezone
+
+from redis.asyncio import Redis
 
 from app.redis_client import init_redis
 from app.settings import settings
 
+
 DEFAULT_TTL = settings.CACHE_DEFAULT_TTL_SECONDS
+
 
 def make_user_info_key(user_id: uuid.UUID) -> str:
     return f"user:{user_id}:info"
@@ -20,39 +23,58 @@ def make_access_key(user_id: uuid.UUID) -> str:
 def make_access_blacklist_key(jti: str) -> str:
     return f"blacklist:access:{jti}"
 
+
 async def cache_user(
-    user_id : uuid.UUID, user_data : dict, r: Redis | None = None, ttl: int = DEFAULT_TTL
+    user_id: uuid.UUID, user_data: dict, r: Redis | None = None, ttl: int = DEFAULT_TTL
 ) -> None:
     r = r or await init_redis()
     payload = json.dumps(user_data, ensure_ascii=False)
     await r.set(make_user_info_key(user_id), payload, ex=ttl)
 
-async def get_cached_user(
-    user_id: uuid.UUID, r: Redis | None = None
-) -> dict | None:
+
+async def get_cached_user(user_id: uuid.UUID, r: Redis | None = None) -> dict | None:
     r = r or await init_redis()
     data = await r.get(make_user_info_key(user_id))
     if not data:
         return None
     return json.loads(data)
 
+
+async def delete_cached_user(user_id: uuid.UUID, r: Redis | None = None) -> None:
+    r = r or await init_redis()
+    await r.delete(make_user_info_key(user_id))
+
+
 async def cache_access(
-    key: str, jti: str, r: Redis | None = None, ttl: int = DEFAULT_TTL
+    key: str,
+    jti: str,
+    exp_ts: int,
+    r: Redis | None = None,
 ) -> None:
     r = r or await init_redis()
-    await r.set(key, jti, ex=ttl)
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    ttl = max(exp_ts - now_ts, 1)
+    payload = json.dumps({"jti": jti, "exp": exp_ts})
+    await r.set(key, payload, ex=ttl)
 
 
-async def get_access(key: str, r: Redis | None = None) -> str | None:
+async def get_access(key: str, r: Redis | None = None) -> dict | None:
     r = r or await init_redis()
-    return await r.get(key)
+    data = await r.get(key)
+    if not data:
+        return None
+    parsed = json.loads(data)
+    if not isinstance(parsed, dict):
+        return None
+    return parsed
 
 
 async def cache_access_to_bl(
-    key: str, r: Redis | None = None, ttl: int = DEFAULT_TTL
+    key: str, r: Redis | None = None, ttl: int | None = DEFAULT_TTL
 ) -> None:
     r = r or await init_redis()
-    await r.set(key, "1", ex=ttl)
+    effective_ttl = ttl if ttl is not None else DEFAULT_TTL
+    await r.set(key, "1", ex=effective_ttl)
 
 
 async def check_access_in_bl(key: str, r: Redis | None = None) -> bool:
@@ -90,5 +112,7 @@ async def token_bucket_allow(
 
     tokens -= 1
     await r.hset(key, mapping={"tokens": str(tokens), "last_refill_ms": str(now_ms)})
-    await r.expire(key, max(refill_period_seconds, 1))
+    cycles = math.ceil(capacity / max(refill_tokens, 1))
+    bucket_ttl = max(refill_period_seconds * max(cycles, 1), 1)
+    await r.expire(key, bucket_ttl)
     return True, int(tokens)

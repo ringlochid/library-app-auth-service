@@ -23,6 +23,7 @@ from app.security import (
 from app.schemas.user import UserCreate, UserRead, UserLogIn
 from app.schemas.token import AccessTokenResponse
 from app.services.email import send_email
+from app.tasks.email import send_verify_email
 from app.settings import settings
 from app.services.auth_tokens import reuse_detection
 from redis.asyncio import Redis
@@ -386,7 +387,7 @@ async def send_email_verification(
     # test
     verify_url = f"{settings.EMAIL_VERIFY_BASE_URL}{verification_token}"
     body = f"your verification link is : {verify_url}"
-    await send_email(to_addr=email, subject="verification", body=body)
+    send_verify_email(to=email, subject="verification", body=body)
 
 
 @router.get("/verify-email", status_code=204)

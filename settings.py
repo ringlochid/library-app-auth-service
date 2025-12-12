@@ -35,9 +35,6 @@ class Settings(BaseSettings):
     RATE_LIMIT_REFRESH_CAPACITY: int = 30
     RATE_LIMIT_REFRESH_REFILL_TOKENS: int = 30
     RATE_LIMIT_REFRESH_REFILL_PERIOD_SECONDS: int = 60
-    RATE_LIMIT_VERIFICATION_EMAIL_CAPACITY: int = 1
-    RATE_LIMIT_VERIFICATION_EMAIL_REFILL_TOKENS: int = 1
-    RATE_LIMIT_VERIFICATION_EMAIL_REFILL_PERIOD_SECONDS: int = 60
     EMAIL_VERIFY_BASE_URL: str = "https://localhost:8000/verify-email?token="
     JWT_PRIVATE_KEY_PATH: str = "keys/private_key.pem"
     JWT_PUBLIC_KEY_PATH: str = "keys/public_key.pem"
@@ -50,6 +47,10 @@ class Settings(BaseSettings):
     MAIL_PORT: int = 587
     MAIL_USER: str | None = None
     MAIL_PASSWORD: str | None = None
+    CELERY_BROKER_URL: str | None = None
+    CELERY_RESULT_BACKEND: str | None = None
+    CELERY_TASK_DEFAULT_QUEUE: str = "default"
+    CELERY_TIMEZONE: str = "UTC"
 
 
 settings = Settings()

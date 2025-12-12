@@ -5,8 +5,12 @@ from redis.asyncio import Redis
 import uuid
 
 from app.redis_client import init_redis
+from app.settings import settings
 
-DEFAULT_TTL = 900
+DEFAULT_TTL = settings.CACHE_DEFAULT_TTL_SECONDS
+
+def make_user_info_key(user_id: uuid.UUID) -> str:
+    return f"user:{user_id}:info"
 
 
 def make_access_key(user_id: uuid.UUID) -> str:
@@ -16,6 +20,21 @@ def make_access_key(user_id: uuid.UUID) -> str:
 def make_access_blacklist_key(jti: str) -> str:
     return f"blacklist:access:{jti}"
 
+async def cache_user(
+    user_id : uuid.UUID, user_data : dict, r: Redis | None = None, ttl: int = DEFAULT_TTL
+) -> None:
+    r = r or await init_redis()
+    payload = json.dumps(user_data, ensure_ascii=False)
+    await r.set(make_user_info_key(user_id), payload, ex=ttl)
+
+async def get_cached_user(
+    user_id: uuid.UUID, r: Redis | None = None
+) -> dict | None:
+    r = r or await init_redis()
+    data = await r.get(make_user_info_key(user_id))
+    if not data:
+        return None
+    return json.loads(data)
 
 async def cache_access(
     key: str, jti: str, r: Redis | None = None, ttl: int = DEFAULT_TTL
@@ -52,10 +71,6 @@ async def token_bucket_allow(
     refill_period_seconds: int,
     r: Redis | None = None,
 ) -> tuple[bool, int]:
-    """
-    Return (allowed, remaining_tokens).
-    Uses a simple token bucket per key. Refill happens linearly based on elapsed time.
-    """
     r = r or await init_redis()
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     bucket = await r.hgetall(key)

@@ -16,7 +16,12 @@ from app.settings import settings
 from app.database import get_db
 from app.models import User
 from app.redis_client import get_redis
-from app.cache import check_access_in_bl, make_access_blacklist_key
+from app.cache import (
+    check_access_in_bl,
+    make_access_blacklist_key,
+    get_cached_user,
+    cache_user,
+)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
@@ -39,6 +44,7 @@ PRIVATE_KEY = (BASE_DIR / settings.JWT_PRIVATE_KEY_PATH).read_text()
 PUBLIC_KEY = (BASE_DIR / settings.JWT_PUBLIC_KEY_PATH).read_text()
 ALGORITHM = settings.JWT_ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
+EMAIL_VERIFY_EXPIRE_MINUTES = settings.EMAIL_VERIFY_EXPIRE_MINUTES
 ISSUER = settings.JWT_ISSUER
 ACCESS_AUDIENCE = settings.JWT_AUDIENCE
 
@@ -91,6 +97,26 @@ def create_refresh_token(
     token = jwt.encode(payload, PRIVATE_KEY, algorithm=ALGORITHM)
     return {"token": token, "payload": payload}
 
+def create_verify_email_token(
+    user_id: uuid.UUID,
+    email : str,
+    expires_delta: Optional[timedelta] = None,
+) -> dict:
+    now = _now_utc()
+    expire = now + (expires_delta or timedelta(minutes=EMAIL_VERIFY_EXPIRE_MINUTES))
+    jti = str(uuid.uuid4())
+    payload = {
+        "sub": str(user_id),
+        "jti": jti,
+        "email" : email,
+        "type": "email_verification",
+        "iss": ISSUER,
+        "aud": ACCESS_AUDIENCE,
+        "iat": int(now.timestamp()),
+        "exp": int(expire.timestamp()),
+    }
+    token = jwt.encode(payload, PRIVATE_KEY, algorithm=ALGORITHM)
+    return {"token": token, "payload": payload}
 
 def decode_access_token(token: str) -> dict:
     try:
@@ -149,6 +175,33 @@ def decode_refresh_token(token: str) -> dict:
 
     return payload
 
+def decode_email_verification_token(token: str) -> dict:
+    try:
+        payload = jwt.decode(
+            token,
+            PUBLIC_KEY,
+            algorithms=[ALGORITHM],
+            audience=ACCESS_AUDIENCE,
+            issuer=ISSUER,
+        )
+    except ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token expired",
+        )
+    except InvalidTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
+
+    if payload.get("type") != "email_verification":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Wrong token type",
+        )
+
+    return payload
 
 async def get_current_user_with_access_token(
     token: str = Depends(oauth2_scheme),
@@ -165,6 +218,20 @@ async def get_current_user_with_access_token(
         )
     user_id = uuid.UUID(payload["sub"])
 
+    cached = await get_cached_user(user_id, r)
+    if cached is not None:
+        return User(
+            id=user_id,
+            name=cached["name"],
+            email=cached["email"],
+            hashed_password="",
+            is_active=cached["is_active"],
+            is_admin=cached["is_admin"],
+            scopes=cached.get("scopes", []),
+            created_at=datetime.fromisoformat(cached["created_at"]) if cached.get("created_at") else None,
+            updated_at=datetime.fromisoformat(cached["updated_at"]) if cached.get("updated_at") else None,
+        )
+
     stat = select(User).where(User.id == user_id)
     result = await db.execute(stat)
     user = result.scalar_one_or_none()
@@ -174,6 +241,21 @@ async def get_current_user_with_access_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive",
         )
+
+    await cache_user(
+        user_id,
+        {
+            "id": str(user_id),
+            "name": user.name,
+            "email": user.email,
+            "is_active": user.is_active,
+            "is_admin": user.is_admin,
+            "scopes": user.scopes,
+            "created_at": user.created_at.isoformat() if user.created_at else "",
+            "updated_at": user.updated_at.isoformat() if user.updated_at else "",
+        },
+        r,
+    )
 
     return user
 

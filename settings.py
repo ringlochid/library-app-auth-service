@@ -13,13 +13,27 @@ class Settings(BaseSettings):
     REDIS_URL: AnyUrl
 
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    EMAIL_VERIFY_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_TTL_DAYS: int = 7
+    CACHE_DEFAULT_TTL_SECONDS: int = 900
+    RATE_LIMIT_LOGIN_CAPACITY: int = 5
+    RATE_LIMIT_LOGIN_REFILL_TOKENS: int = 5
+    RATE_LIMIT_LOGIN_REFILL_PERIOD_SECONDS: int = 60
+    RATE_LIMIT_REFRESH_CAPACITY: int = 30
+    RATE_LIMIT_REFRESH_REFILL_TOKENS: int = 30
+    RATE_LIMIT_REFRESH_REFILL_PERIOD_SECONDS: int = 60
+    EMAIL_VERIFY_BASE_URL: str = "https://localhost:8000/verify-email?token="
     JWT_PRIVATE_KEY_PATH: str = "keys/private_key.pem"
     JWT_PUBLIC_KEY_PATH: str = "keys/public_key.pem"
     JWT_ALGORITHM: str = "RS256"
     JWT_ISSUER: str = "auth-service"
     JWT_AUDIENCE: str = "backend-services"
     COOKIE_SECURE: bool = False
+    MAIL_FROM: str = "no-reply@example.com"
+    MAIL_HOST: str | None = None
+    MAIL_PORT: int = 587
+    MAIL_USER: str | None = None
+    MAIL_PASSWORD: str | None = None
 
 
 settings = Settings()

@@ -1,13 +1,18 @@
+import hashlib
 from datetime import datetime, timezone
 from typing import Annotated
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Response, Request, Cookie
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, Request, Cookie
+from sqlalchemy import select, func, text
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
-from app.models import User, RefreshToken
+from app.models import User, RefreshToken, VerificationToken
+from app.schemas.shared import EmailBase
 from app.security import (
     _now_utc,
+    create_verify_email_token,
+    decode_email_verification_token,
     hash_password,
     verify_password,
     create_access_token,
@@ -18,6 +23,7 @@ from app.security import (
 )
 from app.schemas.user import UserCreate, UserRead, UserLogIn
 from app.schemas.token import AccessTokenResponse
+from app.services.email import send_email
 from app.settings import settings
 from app.services.auth_tokens import reuse_detection
 from redis.asyncio import Redis
@@ -71,9 +77,9 @@ async def user_login(
     ip = meta.get("ip") if meta else None
     allowed, remaining = await token_bucket_allow(
         make_rate_limit_key("login", ip or "unknown"),
-        capacity=5,
-        refill_tokens=5,
-        refill_period_seconds=60,
+        capacity=settings.RATE_LIMIT_LOGIN_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_LOGIN_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_LOGIN_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -171,9 +177,9 @@ async def reissue_access_token(
     ip = meta.get("ip") if meta else None
     allowed, remaining = await token_bucket_allow(
         make_rate_limit_key("refresh", ip or "unknown"),
-        capacity=30,
-        refill_tokens=30,
-        refill_period_seconds=60,
+        capacity=settings.RATE_LIMIT_REFRESH_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_REFRESH_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_REFRESH_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -249,6 +255,59 @@ async def revoke_refresh_token(
         bl_key = make_access_blacklist_key(cached)
         await cache_access_to_bl(bl_key, r)
 
+    await db.commit()
+
+@router.post("/verify-email/send", status_code=202)
+async def send_email_verification(payload : EmailBase, db : AsyncSession = Depends(get_db)):
+    email = payload.email
+    if not email:
+        raise HTTPException(status_code=400, detail='email not valid')
+    stmt = select(User).options(selectinload(User.verification_tokens)).where(User.email == email.lower())
+    user = (await db.execute(stmt)).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    if user.verification_tokens:
+        for vt in user.verification_tokens:
+            if vt.used_at is None:
+                vt.used_at = func.now()
+    verification_token_details = create_verify_email_token(user.id, email=email)
+    verification_token = verification_token_details["token"]
+    digest = hashlib.sha256(verification_token.encode()).hexdigest()
+    vt_payload = verification_token_details["payload"]
+    new_vt = VerificationToken(
+        user_id = user.id,
+        token_hash = digest,
+        expires_at = datetime.fromtimestamp(vt_payload["exp"], tz=timezone.utc),
+        created_at = datetime.fromtimestamp(vt_payload["iat"], tz=timezone.utc)
+    )
+    db.add(new_vt)
+    await db.commit()
+    #test
+    verify_url = f"{settings.EMAIL_VERIFY_BASE_URL}{verification_token}"
+    body = f"your verification link is : {verify_url}"
+    await send_email(to_addr=email, subject="verification", body=body)
+
+@router.get("/verify-email", status_code=204)
+async def commit_email_verification(token : str | None = Query(None, description="the email verification token"), db : AsyncSession = Depends(get_db)):
+    if token is None:
+        raise HTTPException(status_code=400, detail="Token is required")
+    payload = decode_email_verification_token(token)
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    stmt = (
+            select(VerificationToken)
+            .where(
+                VerificationToken.token_hash == digest,
+                VerificationToken.expires_at > func.now(),
+                VerificationToken.used_at.is_(None),
+                VerificationToken.user_id == uuid.UUID(payload["sub"]),
+                VerificationToken.user.has(email=payload["email"].lower()),
+            )
+    )
+    raw_vt = await db.execute(stmt)
+    vt = raw_vt.scalar_one_or_none()
+    if not vt:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+    vt.used_at = func.now()
     await db.commit()
 
 

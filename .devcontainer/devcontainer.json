@@ -1,0 +1,45 @@
+{
+  "name": "library-app-dev",
+  "dockerComposeFile": [
+    "../docker-compose.yml"
+  ],
+  "service": "auth",
+  "workspaceFolder": "/app",
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/app,type=bind"
+  ],
+  "envFile": ".env",
+  "overrideCommand": true,
+  "postCreateCommand": "pip install -r requirements.txt",
+  "forwardPorts": [8000],
+  "watchFiles": true,
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.black-formatter",
+        "ms-azuretools.vscode-docker",
+        "eamodio.gitlens",
+        "mhutchie.git-graph",
+        "ms-ossdata.vscode-postgresql",
+        "rangav.vscode-thunder-client",
+        "cweijan.vscode-redis-client",
+        "gruntfuggly.todo-tree",
+        "openai.chatgpt"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.formatting.provider": "none",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.organizeImports": "explicit"
+        },
+        "python.testing.pytestEnabled": true,
+        "python.testing.unittestEnabled": false,
+        "python.analysis.extraPaths": ["./"],
+        "python.analysis.typeCheckingMode": "basic"
+      }
+    }
+  }
+}

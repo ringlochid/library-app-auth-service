@@ -1,0 +1,6 @@
+keys/
+frontend-test/
+.env
+.env.bak
+__pycache__/
+*.pyc

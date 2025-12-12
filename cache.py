@@ -8,23 +8,33 @@ from app.redis_client import init_redis
 
 DEFAULT_TTL = 900
 
-def make_access_key(user_id : uuid.UUID) -> str:
+
+def make_access_key(user_id: uuid.UUID) -> str:
     return f"user:{user_id}:access"
+
 
 def make_access_blacklist_key(jti: str) -> str:
     return f"blacklist:access:{jti}"
 
-async def cache_access(key: str, jti : str, r: Redis | None = None, ttl: int = DEFAULT_TTL) -> None:
+
+async def cache_access(
+    key: str, jti: str, r: Redis | None = None, ttl: int = DEFAULT_TTL
+) -> None:
     r = r or await init_redis()
     await r.set(key, jti, ex=ttl)
+
 
 async def get_access(key: str, r: Redis | None = None) -> str | None:
     r = r or await init_redis()
     return await r.get(key)
 
-async def cache_access_to_bl(key: str, r: Redis | None = None, ttl: int = DEFAULT_TTL) -> None:
+
+async def cache_access_to_bl(
+    key: str, r: Redis | None = None, ttl: int = DEFAULT_TTL
+) -> None:
     r = r or await init_redis()
     await r.set(key, "1", ex=ttl)
+
 
 async def check_access_in_bl(key: str, r: Redis | None = None) -> bool:
     r = r or await init_redis()

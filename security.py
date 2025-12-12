@@ -81,7 +81,7 @@ def create_refresh_token(
     payload = {
         "sub": str(user_id),
         "jti": jti,
-        "family_id" : str(family_id),
+        "family_id": str(family_id),
         "type": "refresh",
         "iss": ISSUER,
         "aud": ACCESS_AUDIENCE,
@@ -153,7 +153,7 @@ def decode_refresh_token(token: str) -> dict:
 async def get_current_user_with_access_token(
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
-    r : Redis = Depends(get_redis),
+    r: Redis = Depends(get_redis),
 ) -> User:
     payload = decode_access_token(token)
     bl_key = make_access_blacklist_key(payload["jti"])

@@ -7,23 +7,28 @@ from redis.asyncio import Redis
 from app.redis_client import get_redis
 from app.security import _now_utc
 from app.models import RefreshToken
-from app.cache import  make_access_blacklist_key, cache_access_to_bl
+from app.cache import make_access_blacklist_key, cache_access_to_bl
+
 
 async def reuse_detection(
     user_id: uuid.UUID,
     jti: str,
     family_id: uuid.UUID,
     db: AsyncSession,
-    r : Redis = Depends(get_redis),
+    r: Redis = Depends(get_redis),
 ) -> RefreshToken:
     tokens = (
-        await db.execute(
-            select(RefreshToken).where(
-                RefreshToken.user_id == user_id,
-                RefreshToken.family_id == family_id,
+        (
+            await db.execute(
+                select(RefreshToken).where(
+                    RefreshToken.user_id == user_id,
+                    RefreshToken.family_id == family_id,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     if not tokens:
         raise HTTPException(401, "Token not found, revoked or expired")
@@ -43,7 +48,7 @@ async def reuse_detection(
             t.is_current = False
         await db.commit()
         raise HTTPException(403, "Token reuse detected, logging out")
-    
+
     bl_key = make_access_blacklist_key(jti)
     await cache_access_to_bl(bl_key, r)
 

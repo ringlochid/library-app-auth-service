@@ -66,7 +66,7 @@ async def user_login(
     response: Response,
     db: AsyncSession = Depends(get_db),
     meta: dict = Depends(get_request_meta),
-    r : Redis = Depends(get_redis),
+    r: Redis = Depends(get_redis),
 ):
     ip = meta.get("ip") if meta else None
     allowed, remaining = await token_bucket_allow(
@@ -79,9 +79,13 @@ async def user_login(
     if not allowed:
         raise HTTPException(status_code=429, detail="Too many login attempts")
     if not user.email and not user.name:
-        raise HTTPException(status_code=400, detail="Please use the user name or email to log in")
+        raise HTTPException(
+            status_code=400, detail="Please use the user name or email to log in"
+        )
     if user.email and user.name:
-        raise HTTPException(status_code=400, detail="Provide only one of username or email")
+        raise HTTPException(
+            status_code=400, detail="Provide only one of username or email"
+        )
 
     if user.email:
         stmt = select(User).where(User.email == user.email)
@@ -102,7 +106,7 @@ async def user_login(
 
     if not curr_user.is_active:
         raise HTTPException(status_code=403, detail="User is inactive")
-    
+
     key = make_access_key(curr_user.id)
     cached = await get_access(key, r)
     if cached:
@@ -117,8 +121,12 @@ async def user_login(
     refresh_token_details = create_refresh_token(curr_user.id, family_id)
     refresh_token = refresh_token_details["token"]
     jti = refresh_token_details["payload"]["jti"]
-    issued_at = datetime.fromtimestamp(refresh_token_details["payload"]["iat"], tz=timezone.utc)
-    expires_at = datetime.fromtimestamp(refresh_token_details["payload"]["exp"], tz=timezone.utc)
+    issued_at = datetime.fromtimestamp(
+        refresh_token_details["payload"]["iat"], tz=timezone.utc
+    )
+    expires_at = datetime.fromtimestamp(
+        refresh_token_details["payload"]["exp"], tz=timezone.utc
+    )
 
     user_agent = meta["user_agent"]
     ip_address = meta["ip"]
@@ -222,7 +230,7 @@ async def revoke_refresh_token(
     meta: dict = Depends(get_request_meta),
     user: User = Depends(get_current_user_with_refresh_token),
     db: AsyncSession = Depends(get_db),
-    r : Redis = Depends(get_redis),
+    r: Redis = Depends(get_redis),
 ):
     user_agent = meta["user_agent"]
 

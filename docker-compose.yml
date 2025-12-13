@@ -16,9 +16,22 @@ services:
     build: .
     container_name: auth-worker
     env_file: .env
+    environment:
+      CLAMAV_HOST: clamav
     depends_on:
       - redis
+      - clamav
     command: celery -A app.celery_app worker -Q email,default -l info
+
+  clamav:
+    image: clamav/clamav:stable
+    container_name: clamav
+    environment:
+      - CLAMD_STARTUP_TIMEOUT=120000
+    ports:
+      - "3310:3310"
+    volumes:
+      - clamav-db:/var/lib/clamav
 
   db:
     image: postgres:16
@@ -38,3 +51,4 @@ services:
 
 volumes:
   pgdata:
+  clamav-db:

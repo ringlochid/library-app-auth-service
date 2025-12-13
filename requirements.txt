@@ -22,3 +22,7 @@ celery[redis]==5.3.6
 
 aiosmtplib==5.0.0
 boto3==1.42.9
+Pillow==11.0.0
+clamd==1.0.2
+moto[s3]==5.0.1
+aiosqlite==0.20.0

@@ -10,7 +10,10 @@ class Settings(BaseSettings):
     )
 
     DATABASE_URL: AnyUrl
-    REDIS_URL: AnyUrl
+    REDIS_URL: AnyUrl | None = None
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
 
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     EMAIL_VERIFY_EXPIRE_MINUTES: int = 15
@@ -47,6 +50,8 @@ class Settings(BaseSettings):
     MAIL_PORT: int = 587
     MAIL_USER: str | None = None
     MAIL_PASSWORD: str | None = None
+    MAIL_TO: str | None = None
+    MAIL_TEST_TO: str | None = None
     CELERY_BROKER_URL: str | None = None
     CELERY_RESULT_BACKEND: str | None = None
     CELERY_TASK_DEFAULT_QUEUE: str = "default"
@@ -56,6 +61,20 @@ class Settings(BaseSettings):
     S3_MEDIA_REGION: str | None = None
     AVATAR_UPLOAD_EXPIRES_SECONDS: int = 600
     AVATAR_MAX_BYTES: int = 2 * 1024 * 1024
+    AVATAR_ALLOWED_MIME_TYPES: list[str] = [
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+    ]
+    AVATAR_MAX_PIXELS: int = 25_000_000
+    AVATAR_TARGET_SIZES: list[int] = [512, 256, 128, 64]
+    AVATAR_RESIZE_MAX_SIDE: int = 512
+    AVATAR_UPSCALE_MAX: float = 2.0
+    AVATAR_OUTPUT_FORMAT: str = "WEBP"
+    AVATAR_JPEG_QUALITY: int = 85
+    CLAMAV_HOST: str | None = None
+    CLAMAV_PORT: int = 3310
+    ALEMBIC_DATABASE_URL: str | None = None
 
 
 settings = Settings()

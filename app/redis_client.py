@@ -1,19 +1,19 @@
-import os
-
 from fastapi import Request
 from redis.asyncio import Redis, from_url
+
+from app.settings import settings
 
 _redis: Redis | None = None
 
 
 def _build_redis_url() -> str:
-    """Build a Redis URL from env vars with sensible defaults."""
-    if raw := os.getenv("REDIS_URL"):
-        return raw
+    """Build a Redis URL from configured settings with sensible defaults."""
+    if settings.REDIS_URL:
+        return str(settings.REDIS_URL)
 
-    host = os.getenv("REDIS_HOST", "localhost")
-    port = os.getenv("REDIS_PORT", "6379")
-    db = os.getenv("REDIS_DB", "0")
+    host = settings.REDIS_HOST or "localhost"
+    port = settings.REDIS_PORT or 6379
+    db = settings.REDIS_DB or 0
     return f"redis://{host}:{port}/{db}"
 
 

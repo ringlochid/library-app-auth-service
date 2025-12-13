@@ -26,7 +26,7 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 # build DB URL from settings; allow override via ALEMBIC_DATABASE_URL when running on host
-raw_url = os.getenv("ALEMBIC_DATABASE_URL") or str(settings.DATABASE_URL)
+raw_url = settings.ALEMBIC_DATABASE_URL or str(settings.DATABASE_URL)
 if "+asyncpg" in raw_url:
     raw_url = raw_url.replace("+asyncpg", "+psycopg")
 config.set_main_option("sqlalchemy.url", raw_url)

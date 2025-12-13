@@ -10,6 +10,6 @@ def send_verify_email(to: str, subject: str, body: str) -> dict:
         asyncio.run(send_email(to_addr=to, subject=subject, body=body))
         return {"status": "sent", "to": to}
     except Exception as exc:
-        # log and let Celery retry/backoff if configured
+        # log and let Celery retry/backoff
         app.log.get_default_logger().warning("email send failed: %s", exc)
         raise

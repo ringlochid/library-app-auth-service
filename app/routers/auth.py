@@ -448,7 +448,6 @@ async def who_am_i_admin(user: User = Depends(get_current_user_with_access_token
     return user
 
 
-# Avatar upload flow
 @router.post("/avatar/upload", response_model=AvatarUploadResponse)
 async def create_avatar_upload(
     payload: AvatarUploadRequest,

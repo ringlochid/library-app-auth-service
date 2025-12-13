@@ -1,5 +1,6 @@
 import hashlib
 from datetime import datetime, timezone, timedelta
+from os import path
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, Request, Cookie
 from sqlalchemy import select, func, text
@@ -13,6 +14,7 @@ from app.security import (
     create_verify_email_token,
     decode_email_verification_token,
     hash_password,
+    verify_password,
     verify_password,
     create_access_token,
     create_refresh_token,
@@ -37,6 +39,7 @@ from app.services.storage import get_s3_client
 from redis.asyncio import Redis
 from app.redis_client import get_redis
 from app.cache import (
+    create_avatar_claim,
     make_access_blacklist_key,
     make_access_key,
     cache_access,
@@ -45,8 +48,11 @@ from app.cache import (
     delete_cached_user,
     token_bucket_allow,
     make_rate_limit_key,
+    consume_avatar_claim,
 )
 import uuid as uuid_pkg
+import time
+from typing import Set
 
 
 def get_request_meta(request: Request) -> dict:
@@ -453,11 +459,32 @@ async def create_avatar_upload(
     payload: AvatarUploadRequest,
     user: User = Depends(get_current_user_with_access_token),
     s3_client = Depends(get_s3_client),
+    meta: dict = Depends(get_request_meta),
+    r : Redis = Depends(get_redis),
 ):
     """
     Issue a presigned POST for uploading an avatar to a temporary key.
     """
-    key = f"tmp/avatars/{user.id}/{uuid_pkg.uuid4()}"
+    allowed_mimes = set(settings.AVATAR_ALLOWED_MIME_TYPES)
+    if payload.content_type not in allowed_mimes:
+        raise HTTPException(status_code=400, detail="Unsupported avatar content type")
+
+    ip = meta["ip"]
+    rl_key = make_rate_limit_key("avatar_upload", str(ip))
+    allowed, _ = await token_bucket_allow(
+            key=rl_key,
+            capacity=settings.RATE_LIMIT_AVATAR_UPLOAD_CAPACITY,
+            refill_tokens=settings.RATE_LIMIT_AVATAR_UPLOAD_REFILL_TOKENS,
+            refill_period_seconds=settings.RATE_LIMIT_AVATAR_UPLOAD_REFILL_PERIOD_SECONDS,
+            r = r,
+        )
+    if not allowed:
+        raise HTTPException(status_code=429, detail="Too many upload requests for this ip")
+
+    path_id = uuid.uuid4()
+    expires_ts = int(_now_utc().timestamp()) + settings.AVATAR_UPLOAD_EXPIRES_SECONDS
+    ttl = settings.AVATAR_UPLOAD_EXPIRES_SECONDS + 300
+    key = f"tmp/avatars/{user.id}/{path_id}"
     try:
         presigned = s3_client.generate_presigned_post(
             Bucket=settings.S3_MEDIA_BUCKET,
@@ -465,13 +492,23 @@ async def create_avatar_upload(
             Fields={"Content-Type": payload.content_type},
             Conditions=[
                 ["starts-with", "$Content-Type", "image/"],
-                ["content-length-range", 0, settings.AVATAR_MAX_BYTES],
+                ["content-length-range", 1, settings.AVATAR_MAX_BYTES],
             ],
             ExpiresIn=settings.AVATAR_UPLOAD_EXPIRES_SECONDS,
         )
-    except Exception as exc:  # pragma: no cover - passthrough AWS errors
+    except Exception as exc:  # passthrough AWS errors
         raise HTTPException(status_code=500, detail="Failed to create upload URL") from exc
 
+    await create_avatar_claim(
+        user_id=user.id,
+        upload_id=path_id,
+        s3_key=key,
+        expected_mime=payload.content_type,
+        max_bytes=settings.AVATAR_MAX_BYTES,
+        expires_at_ts=expires_ts,
+        ttl_seconds=ttl,
+        r=r,
+    )
     return AvatarUploadResponse(key=key, url=presigned["url"], fields=presigned["fields"])
 
 
@@ -479,36 +516,83 @@ async def create_avatar_upload(
 async def commit_avatar(
     payload: AvatarCommitRequest,
     user: User = Depends(get_current_user_with_access_token),
-    db: AsyncSession = Depends(get_db),
+    meta: dict = Depends(get_request_meta),
     r: Redis = Depends(get_redis),
     s3_client = Depends(get_s3_client),
 ):
-    """
-    Finalize an avatar upload: ensure the object exists in tmp/, then move to permanent key.
-    """
+    ip = meta["ip"]
+    rl_key = make_rate_limit_key("avatar_commit", str(ip))
+    allowed, _ = await token_bucket_allow(
+            key=rl_key,
+            capacity=settings.RATE_LIMIT_AVATAR_COMMIT_CAPACITY,
+            refill_tokens=settings.RATE_LIMIT_AVATAR_COMMIT_REFILL_TOKENS,
+            refill_period_seconds=settings.RATE_LIMIT_AVATAR_COMMIT_REFILL_PERIOD_SECONDS,
+            r = r,
+        )
+    if not allowed:
+        raise HTTPException(status_code=429, detail="Too many commit requests for this ip")
+    
     tmp_key = payload.key
     expected_prefix = f"tmp/avatars/{user.id}/"
     if not tmp_key.startswith(expected_prefix):
         raise HTTPException(status_code=400, detail="Invalid key")
-    bucket = settings.S3_MEDIA_BUCKET
-    # ensure object exists in tmp
+
+    parts = tmp_key.split("/")
+    if len(parts) != 4:
+        raise HTTPException(status_code=400, detail="Invalid key format")
+
+    leaf = parts[3]
+    leaf_uuid = leaf
+    if "." in leaf:
+        leaf_uuid, ext = leaf.rsplit(".", 1)
+        if "." in leaf_uuid:
+            raise HTTPException(status_code=400, detail="Invalid filename")
+        # derive allowed extensions from allowed MIME types
+        mime_to_ext = {
+            "image/jpeg": {"jpg", "jpeg"},
+            "image/png": {"png"},
+            "image/webp": {"webp"},
+            "image/avif": {"avif"},
+        }
+        allowed_exts: Set[str] = set()
+        for mime in settings.AVATAR_ALLOWED_MIME_TYPES:
+            allowed_exts.update(mime_to_ext.get(mime, set()))
+        if ext.lower() not in allowed_exts:
+            raise HTTPException(status_code=400, detail="Disallowed file extension")
+
     try:
-        s3_client.head_object(Bucket=bucket, Key=tmp_key)
+        upload_id = uuid_pkg.UUID(leaf_uuid)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid upload id")
+
+    claim = await consume_avatar_claim(user.id, upload_id, r)
+    if not claim:
+        raise HTTPException(status_code=400, detail="Upload not found or expired")
+    if claim.get("key") != tmp_key:
+        raise HTTPException(status_code=400, detail="Claim does not match key")
+    exp_ts = claim.get("exp_ts")
+    now_ts = int(time.time())
+    if exp_ts and now_ts > exp_ts:
+        raise HTTPException(status_code=400, detail="Upload claim has expired")
+
+    # Optional fast-fail: ensure object exists and matches claim expectations.
+    try:
+        head = s3_client.head_object(Bucket=settings.S3_MEDIA_BUCKET, Key=tmp_key)
+        size = head.get("ContentLength") or 0
+        if size < 1 or size > claim.get("max_bytes", settings.AVATAR_MAX_BYTES):
+            raise HTTPException(status_code=400, detail="Upload size invalid")
+        content_type = head.get("ContentType")
+        expected_mime = claim.get("expected_mime")
+        if expected_mime and content_type and content_type != expected_mime:
+            raise HTTPException(status_code=400, detail="Upload content type invalid")
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=400, detail="Upload not found or expired")
 
-    final_key = f"avatars/{user.id}/{uuid_pkg.uuid4()}"
     try:
-        s3_client.copy_object(
-            Bucket=bucket,
-            CopySource={"Bucket": bucket, "Key": tmp_key},
-            Key=final_key,
-            MetadataDirective="REPLACE",
-        )
-        s3_client.delete_object(Bucket=bucket, Key=tmp_key)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail="Failed to finalize avatar") from exc
+        from app.tasks.media import process_upload
 
-    user.avatar_key = final_key
-    await db.commit()
-    await delete_cached_user(user.id, r)
+        process_upload.delay(tmp_key)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Failed to enqueue processing") from exc

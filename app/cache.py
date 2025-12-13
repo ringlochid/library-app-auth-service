@@ -24,6 +24,13 @@ def make_access_blacklist_key(jti: str) -> str:
     return f"blacklist:access:{jti}"
 
 
+def make_avatar_claim_key(user_id: uuid.UUID, upload_id: uuid.UUID) -> str:
+    """
+    Redis key to track a short-lived avatar upload claim.
+    """
+    return f"avatar:claim:{user_id}:{upload_id}"
+
+
 async def cache_user(
     user_id: uuid.UUID, user_data: dict, r: Redis | None = None, ttl: int = DEFAULT_TTL
 ) -> None:
@@ -84,6 +91,68 @@ async def check_access_in_bl(key: str, r: Redis | None = None) -> bool:
 
 def make_rate_limit_key(prefix: str, identifier: str) -> str:
     return f"rl:{prefix}:{identifier}"
+
+
+async def create_avatar_claim(
+    user_id: uuid.UUID,
+    upload_id: uuid.UUID,
+    s3_key: str,
+    expected_mime: str,
+    max_bytes: int,
+    expires_at_ts: int,
+    ttl_seconds: int,
+    r: Redis | None = None,
+) -> None:
+    """
+    Store a short-lived claim tying a tmp upload key to a user and expectations.
+    """
+    r = r or await init_redis()
+    payload = {
+        "user_id": str(user_id),
+        "upload_id": str(upload_id),
+        "key": s3_key,
+        "expected_mime": expected_mime,
+        "max_bytes": max_bytes,
+        "exp_ts": expires_at_ts,
+        "used": False,
+    }
+    await r.set(make_avatar_claim_key(user_id, upload_id), json.dumps(payload), ex=ttl_seconds)
+
+
+async def get_avatar_claim(
+    user_id: uuid.UUID, upload_id: uuid.UUID, r: Redis | None = None
+) -> dict | None:
+    """
+    Fetch an avatar claim payload if it exists.
+    """
+    r = r or await init_redis()
+    data = await r.get(make_avatar_claim_key(user_id, upload_id))
+    if not data:
+        return None
+    try:
+        return json.loads(data)
+    except Exception:
+        return None
+
+
+async def consume_avatar_claim(
+    user_id: uuid.UUID, upload_id: uuid.UUID, r: Redis | None = None
+) -> dict | None:
+    """
+    Atomically fetch and delete an avatar claim. Returns the claim if found.
+    """
+    r = r or await init_redis()
+    key = make_avatar_claim_key(user_id, upload_id)
+    pipe = r.pipeline()
+    pipe.get(key)
+    pipe.delete(key)
+    val, _ = await pipe.execute()
+    if not val:
+        return None
+    try:
+        return json.loads(val)
+    except Exception:
+        return None
 
 
 async def token_bucket_allow(

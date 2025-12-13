@@ -20,12 +20,20 @@ from app.security import (
     get_current_user_with_refresh_token,
     decode_refresh_token,
 )
-from app.schemas.user import UserCreate, UserRead, UserLogIn
+from app.schemas.user import (
+    UserCreate,
+    UserRead,
+    UserLogIn,
+    AvatarUploadRequest,
+    AvatarUploadResponse,
+    AvatarCommitRequest,
+)
 from app.schemas.token import AccessTokenResponse
 from app.services.email import send_email
 from app.tasks.email import send_verify_email
 from app.settings import settings
 from app.services.auth_tokens import reuse_detection
+from app.services.storage import get_s3_client
 from redis.asyncio import Redis
 from app.redis_client import get_redis
 from app.cache import (
@@ -38,6 +46,7 @@ from app.cache import (
     token_bucket_allow,
     make_rate_limit_key,
 )
+import uuid as uuid_pkg
 
 
 def get_request_meta(request: Request) -> dict:
@@ -437,3 +446,70 @@ async def who_am_i_admin(user: User = Depends(get_current_user_with_access_token
     if not user.is_admin:
         raise HTTPException(status_code=401, detail="Admins only")
     return user
+
+
+# Avatar upload flow
+@router.post("/avatar/upload", response_model=AvatarUploadResponse)
+async def create_avatar_upload(
+    payload: AvatarUploadRequest,
+    user: User = Depends(get_current_user_with_access_token),
+    s3_client = Depends(get_s3_client),
+):
+    """
+    Issue a presigned POST for uploading an avatar to a temporary key.
+    """
+    key = f"tmp/avatars/{user.id}/{uuid_pkg.uuid4()}"
+    try:
+        presigned = s3_client.generate_presigned_post(
+            Bucket=settings.S3_MEDIA_BUCKET,
+            Key=key,
+            Fields={"Content-Type": payload.content_type},
+            Conditions=[
+                ["starts-with", "$Content-Type", "image/"],
+                ["content-length-range", 0, settings.AVATAR_MAX_BYTES],
+            ],
+            ExpiresIn=settings.AVATAR_UPLOAD_EXPIRES_SECONDS,
+        )
+    except Exception as exc:  # pragma: no cover - passthrough AWS errors
+        raise HTTPException(status_code=500, detail="Failed to create upload URL") from exc
+
+    return AvatarUploadResponse(key=key, url=presigned["url"], fields=presigned["fields"])
+
+
+@router.post("/avatar/commit", status_code=204)
+async def commit_avatar(
+    payload: AvatarCommitRequest,
+    user: User = Depends(get_current_user_with_access_token),
+    db: AsyncSession = Depends(get_db),
+    r: Redis = Depends(get_redis),
+    s3_client = Depends(get_s3_client),
+):
+    """
+    Finalize an avatar upload: ensure the object exists in tmp/, then move to permanent key.
+    """
+    tmp_key = payload.key
+    expected_prefix = f"tmp/avatars/{user.id}/"
+    if not tmp_key.startswith(expected_prefix):
+        raise HTTPException(status_code=400, detail="Invalid key")
+    bucket = settings.S3_MEDIA_BUCKET
+    # ensure object exists in tmp
+    try:
+        s3_client.head_object(Bucket=bucket, Key=tmp_key)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Upload not found or expired")
+
+    final_key = f"avatars/{user.id}/{uuid_pkg.uuid4()}"
+    try:
+        s3_client.copy_object(
+            Bucket=bucket,
+            CopySource={"Bucket": bucket, "Key": tmp_key},
+            Key=final_key,
+            MetadataDirective="REPLACE",
+        )
+        s3_client.delete_object(Bucket=bucket, Key=tmp_key)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Failed to finalize avatar") from exc
+
+    user.avatar_key = final_key
+    await db.commit()
+    await delete_cached_user(user.id, r)

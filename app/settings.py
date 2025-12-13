@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     CELERY_RESULT_BACKEND: str | None = None
     CELERY_TASK_DEFAULT_QUEUE: str = "default"
     CELERY_TIMEZONE: str = "UTC"
+    # Media / avatar uploads
+    S3_MEDIA_BUCKET: str | None = None
+    S3_MEDIA_REGION: str | None = None
+    AVATAR_UPLOAD_EXPIRES_SECONDS: int = 600
+    AVATAR_MAX_BYTES: int = 2 * 1024 * 1024
 
 
 settings = Settings()

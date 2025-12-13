@@ -10,6 +10,15 @@ services:
     depends_on:
       - db
       - redis
+      - worker
+
+  worker:
+    build: .
+    container_name: auth-worker
+    env_file: .env
+    depends_on:
+      - redis
+    command: celery -A app.celery_app worker -Q email,default -l info
 
   db:
     image: postgres:16

@@ -1,4 +1,3 @@
-import os
 from email.message import EmailMessage
 from typing import Optional
 
@@ -21,20 +20,21 @@ async def send_email(
 ) -> None:
     """Send a plain text email using SMTP settings from env/settings."""
     msg = EmailMessage()
-    msg["From"] = mail_from or getattr(settings, "MAIL_FROM", "no-reply@example.com")
+    msg["From"] = mail_from or settings.MAIL_FROM or "no-reply@example.com"
     msg["To"] = to_addr
     msg["Subject"] = subject
     msg.set_content(body)
 
+    host = host or settings.MAIL_HOST
+    port = port or settings.MAIL_PORT
+    user = username or settings.MAIL_USER
+    pwd = password or settings.MAIL_PASSWORD
+
     await aiosmtplib.send(
         msg,
-        hostname=host or os.getenv("MAIL_HOST") or getattr(settings, "MAIL_HOST", None),
-        port=port or int(os.getenv("MAIL_PORT", "587")),
-        username=username
-        or os.getenv("MAIL_USER")
-        or getattr(settings, "MAIL_USER", None),
-        password=password
-        or os.getenv("MAIL_PASSWORD")
-        or getattr(settings, "MAIL_PASSWORD", None),
+        hostname=host,
+        port=port,
+        username=user,
+        password=pwd,
         start_tls=start_tls,
     )

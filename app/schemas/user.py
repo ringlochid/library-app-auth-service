@@ -41,5 +41,22 @@ class UserRead(UserBase):
     is_admin: bool
     scopes: list[str]
     email_verified_at: datetime | None = None
+    avatar_key: str | None = None
+    bio: str | None = None
+    preferences: dict | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AvatarUploadRequest(BaseModel):
+    content_type: str = "image/jpeg"
+
+
+class AvatarUploadResponse(BaseModel):
+    key: str
+    url: str
+    fields: dict
+
+
+class AvatarCommitRequest(BaseModel):
+    key: str

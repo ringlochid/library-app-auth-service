@@ -26,6 +26,17 @@ app.conf.update(
         "app.tasks.media.*": {"queue": "media"},
         "app.tasks.email.*": {"queue": "email"},
         "app.tasks.roles.*": {"queue": "default"},
+        "app.tasks.cleanup.*": {"queue": "default"},
+    },
+    
+    # Celery Beat schedule for periodic tasks
+    beat_schedule={
+        "cleanup-expired-users-daily": {
+            "task": "app.tasks.cleanup.delete_expired_unverified_users",
+            "schedule": 86400.0,  # Run every 24 hours (in seconds)
+            # To run at specific time, use crontab:
+            # "schedule": crontab(hour=2, minute=0),  # Run at 2:00 AM daily
+        },
     },
 )
 

@@ -20,8 +20,11 @@ FastAPI-based authentication service with JWT access/refresh tokens, email verif
   - Pending upgrades tracked on user, locked users temporarily forced to "user" role
 - **Service-to-Service Auth**: `X-Service-Token` header validation for admin trust adjustments.
 - **Content Report System (Phase 4)**: Jury oversight with edit-level reporting, auto-lock at 10+ trusted reporters, admin review workflow
+- **Session Management (Phase 5)**: Track active sessions with device info, last usage timestamps, and session revocation
+- **Health Endpoints (Phase 6)**: `/health` (liveness) and `/ready` (readiness with dependency checks) for AWS App Runner
 - **Redis Caching**: User info and token blacklist with TTL.
 - **Celery Worker**: Async email sending with retry logic (Mailtrap/SMTP by default).
+- **Celery Beat**: Periodic cleanup of expired unverified users (daily schedule).
 
 ## Requirements
 - Python 3.11+
@@ -56,6 +59,32 @@ Celery worker:
 ```bash
 celery -A app.celery_app worker -Q media,email,default -l info
 ```
+Celery Beat (periodic tasks):
+```bash
+celery -A app.celery_app beat -l info
+```
+
+### Docker Compose
+Start all services (app, worker, beat, db, redis, clamav):
+```bash
+docker compose up -d
+```
+
+## Periodic Tasks
+The service includes automated cleanup tasks via Celery Beat:
+
+### Expired User Cleanup
+- **Task**: `app.tasks.cleanup.delete_expired_unverified_users`
+- **Schedule**: Every 24 hours (86400 seconds)
+- **Purpose**: Deletes users who didn't verify their email before `expires_at`
+- **Logic**: 
+  - Finds users where `expires_at <= now()` AND `email_verified_at IS NULL`
+  - Verified users have `expires_at` set to NULL (safe from deletion)
+  - Logs deleted user emails for audit trail
+- **Manual trigger**: 
+  ```bash
+  celery -A app.celery_app call app.tasks.cleanup.delete_expired_unverified_users
+  ```
 
 ## Tests
 Run all tests (78 tests, including RBAC, schema, trust, security, and report system tests):

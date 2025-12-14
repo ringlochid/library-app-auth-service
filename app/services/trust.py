@@ -10,6 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import User, TrustHistory
 from app.rbac import calculate_user_roles
 from app.settings import settings
+from app.events.event_schemas import (
+    UserTrustUpdatedEvent,
+    UserRoleDowngradedEvent,
+    UserBlacklistedEvent,
+)
+from app.events.emitter import emit_event
 
 
 TrustSource = Literal["manual", "upload", "review", "social", "auto_blacklist"]
@@ -74,6 +80,7 @@ async def adjust_trust_score(
     user.trust_score = new_score
     
     # Auto-blacklist if trust score hits 0
+    was_blacklisted = user.is_blacklisted
     if new_score == 0 and not user.is_blacklisted:
         user.is_blacklisted = True
         # Clear any pending upgrades
@@ -118,9 +125,39 @@ async def adjust_trust_score(
             # DOWNGRADE: Apply immediately
             user.pending_role_upgrade = None
             user.roles = new_roles  # Apply new roles immediately
+            
+            # Emit downgrade event
+            await emit_event(UserRoleDowngradedEvent(
+                user_id=user.id,
+                old_roles=old_roles,
+                new_roles=new_roles,
+                trust_score=new_score,
+                reputation=user.reputation_percentage,
+                reason=f"Trust score dropped to {new_score}",
+            ))
     
     await db.commit()
     await db.refresh(user)
+    
+    # Emit blacklist event if newly blacklisted
+    if not was_blacklisted and user.is_blacklisted:
+        await emit_event(UserBlacklistedEvent(
+            user_id=user.id,
+            trust_score=new_score,
+            reason=f"Trust score reached {new_score} (auto-blacklist)",
+            automatic=True,
+        ))
+    
+    # Emit trust_updated event
+    await emit_event(UserTrustUpdatedEvent(
+        user_id=user.id,
+        old_score=old_score,
+        new_score=new_score,
+        delta=delta,
+        reason=reason,
+        source=source,
+        pending_upgrade=user.pending_role_upgrade,
+    ))
     
     return user
 

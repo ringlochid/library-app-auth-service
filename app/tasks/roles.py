@@ -9,6 +9,8 @@ from app.celery_app import app
 from app.database import AsyncSessionLocal
 from app.models import User
 from app.rbac import calculate_user_roles
+from app.events.event_schemas import UserRoleUpgradedEvent
+from app.events.emitter import emit_event
 
 
 def _now_utc() -> datetime:
@@ -68,18 +70,6 @@ def process_role_upgrade(self, user_id_str: str, target_roles: list[str]):
             target_level = get_max_role_level(target_roles)
             current_level = get_max_role_level(current_roles)
             
-            if current_level >= target_level:
-                # User already has the target role or higher
-                # Clear pending upgrade
-                user.pending_role_upgrade = None
-                await db.commit()
-                return {
-                    "status": "upgrade_applied",
-                    "user_id": user_id_str,
-                    "roles": current_roles,
-                    "note": "User already at or above target level"
-                }
-            
             if current_level < target_level:
                 # Eligibility lost (trust dropped, reputation dropped, blacklisted, locked)
                 user.pending_role_upgrade = None
@@ -92,15 +82,27 @@ def process_role_upgrade(self, user_id_str: str, target_roles: list[str]):
                     "target_roles": target_roles,
                 }
             
-            # All checks passed - this should not happen as we handled >= and < cases
-            # But as safety, clear the pending upgrade
+            # User still eligible - apply upgrade
+            old_roles = user.roles or ["user"]
+            user.roles = current_roles
             user.pending_role_upgrade = None
             await db.commit()
+            await db.refresh(user)
+            
+            # Emit role upgraded event
+            await emit_event(UserRoleUpgradedEvent(
+                user_id=user.id,
+                old_roles=old_roles,
+                new_roles=current_roles,
+                trust_score=user.trust_score,
+                reputation=user.reputation_percentage,
+                reason=user.pending_role_upgrade.get("reason", "Delayed upgrade completed") if user.pending_role_upgrade else "Delayed upgrade completed",
+            ))
             
             return {
                 "status": "upgrade_applied",
                 "user_id": user_id_str,
-                "old_roles": target_roles,  # Old target
+                "old_roles": old_roles,
                 "new_roles": current_roles,
             }
     

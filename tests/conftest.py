@@ -168,7 +168,7 @@ async def user_token(db_session):
 
 @pytest_asyncio.fixture
 async def contributor_token(db_session):
-    """Create a contributor user and return their access token."""
+    """Create a contributor user and return their access token and user object."""
     from datetime import datetime, timezone
     user = User(
         id=uuid.uuid4(),
@@ -189,7 +189,7 @@ async def contributor_token(db_session):
         trust_score=user.trust_score,
         reputation_percentage=user.reputation_percentage
     )
-    return token
+    return token, user
 
 
 @pytest_asyncio.fixture

@@ -1,8 +1,8 @@
-"""update tables for report
+"""initial schema
 
-Revision ID: dfaa793a0687
-Revises: 0efdcec73b2a
-Create Date: 2025-12-14 22:20:37.169408
+Revision ID: 30d47b0b071b
+Revises: 
+Create Date: 2025-12-14 13:32:55.282743
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = 'dfaa793a0687'
-down_revision: Union[str, Sequence[str], None] = '0efdcec73b2a'
+revision: str = '30d47b0b071b'
+down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -89,6 +89,8 @@ def upgrade() -> None:
     sa.Column('revoked', sa.Boolean(), server_default=sa.text('FALSE'), nullable=False),
     sa.Column('user_agent', sa.String(length=255), nullable=True),
     sa.Column('ip_address', sa.String(length=45), nullable=True),
+    sa.Column('last_used_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('last_used_ip', sa.String(length=45), nullable=True),
     sa.CheckConstraint('expires_at > issued_at', name='ck_refresh_tokens_expiry'),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id'),

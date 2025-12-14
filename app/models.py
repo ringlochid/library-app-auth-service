@@ -140,6 +140,9 @@ class RefreshToken(Base):
     )
     user_agent: Mapped[str | None] = mapped_column(String(255))
     ip_address: Mapped[str | None] = mapped_column(String(45))
+    # Phase 5: Session tracking
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="refresh_tokens")
 

@@ -21,10 +21,11 @@ class TestReportSubmission:
     async def test_submit_report_as_contributor(
         self, 
         async_client: AsyncClient, 
-        contributor_token: str,
+        contributor_token: tuple[str, "User"],
         db_session
     ):
         """Contributors can submit reports on edit actions."""
+        access_token, _ = contributor_token
         report = {
             "target": {
                 "content_type": "book",
@@ -40,7 +41,7 @@ class TestReportSubmission:
         response = await async_client.post(
             "/reports",
             json=report,
-            headers={"Authorization": f"Bearer {contributor_token}"}
+            headers={"Authorization": f"Bearer {access_token}"}
         )
         
         assert response.status_code == 201
@@ -396,10 +397,11 @@ class TestAdminReview:
     async def test_admin_approve_report(
         self, 
         async_client: AsyncClient,
-        contributor_token: str,
+        contributor_token: tuple[str, "User"],
         admin_token: str
     ):
         """Admin can approve reports."""
+        access_token, _ = contributor_token
         # Submit report
         actor_id = str(uuid.uuid4())
         report = {
@@ -417,7 +419,7 @@ class TestAdminReview:
         submit_response = await async_client.post(
             "/reports",
             json=report,
-            headers={"Authorization": f"Bearer {contributor_token}"}
+            headers={"Authorization": f"Bearer {access_token}"}
         )
         assert submit_response.status_code == 201
         report_id = submit_response.json()["id"]
@@ -441,10 +443,11 @@ class TestAdminReview:
     async def test_admin_reject_report(
         self, 
         async_client: AsyncClient,
-        contributor_token: str,
+        contributor_token: tuple[str, "User"],
         admin_token: str
     ):
         """Admin can reject reports."""
+        access_token, _ = contributor_token
         actor_id = str(uuid.uuid4())
         report = {
             "target": {
@@ -461,7 +464,7 @@ class TestAdminReview:
         submit_response = await async_client.post(
             "/reports",
             json=report,
-            headers={"Authorization": f"Bearer {contributor_token}"}
+            headers={"Authorization": f"Bearer {access_token}"}
         )
         report_id = submit_response.json()["id"]
         

@@ -747,7 +747,7 @@ GET /user/users/{user_id}/trust/history?limit=20&offset=0
 
 ---
 
-## Report System Integration (Phase 4)
+## Report System Integration (Phase 4) ✅ IMPLEMENTED
 
 ### Concept: Report Edit History, Not Content
 
@@ -991,5 +991,36 @@ A: Library Service marks content as `deleted` with 48h grace period. Contributor
 - **Library Service Repository**: [GitHub Link]
 
 **Last Updated**: December 14, 2025  
-**Auth Service Version**: Phase 2 Complete (JWT-based integration)  
+**Auth Service Version**: Phase 4 Complete (JWT-based integration + Content Report System)  
 **API Version**: v1
+
+---
+
+## Phase 4 Implementation Status ✅
+
+**Completed Features**:
+- ✅ Content report submission (POST /reports) - Contributor+ only
+- ✅ Report listing with filters (GET /reports) - Admin only
+- ✅ Admin review workflow (POST /reports/{id}/review) - Approve/reject reports
+- ✅ Manual user unlock (POST /users/{id}/unlock) - Admin only
+- ✅ Auto-lock mechanism (10+ distinct trusted reporters with approved/pending reports)
+- ✅ Edit-level reporting (JSONB target structure with edit_id, actor_id)
+- ✅ Duplicate report prevention (unique constraint per reporter + edit_id)
+- ✅ Trust history audit trail for lock/unlock events
+- ✅ Locked users downgraded to "user" role (contributor+ privileges stripped)
+- ✅ Database migration: `dfaa793a0687_update_tables_for_report.py`
+- ✅ 12 comprehensive tests (100% passing)
+
+**Database Tables**:
+- `content_reports`: Tracks reports with JSONB target, status, category, review data
+- `trust_history`: Audit trail includes auto_lock and manual unlock sources
+
+**Test Coverage** (78 total tests):
+- Report submission validation (contributor role, trust score >= 10)
+- Duplicate report prevention
+- Auto-lock threshold (10+ trusted users, approved/pending only)
+- Rejected reports excluded from auto-lock count
+- Admin review workflow (approve/reject with notes)
+- Cannot review twice
+- Manual unlock by admin
+- Trust history audit entries

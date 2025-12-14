@@ -19,6 +19,7 @@ FastAPI-based authentication service with JWT access/refresh tokens, email verif
   - Delayed role upgrades (15m, double-check) and immediate downgrades
   - Pending upgrades tracked on user, locked users temporarily forced to "user" role
 - **Service-to-Service Auth**: `X-Service-Token` header validation for admin trust adjustments.
+- **Content Report System (Phase 4)**: Jury oversight with edit-level reporting, auto-lock at 10+ trusted reporters, admin review workflow
 - **Redis Caching**: User info and token blacklist with TTL.
 - **Celery Worker**: Async email sending with retry logic (Mailtrap/SMTP by default).
 
@@ -57,7 +58,7 @@ celery -A app.celery_app worker -Q media,email,default -l info
 ```
 
 ## Tests
-Run all tests (66 tests, including RBAC, schema, trust, and security tests):
+Run all tests (78 tests, including RBAC, schema, trust, security, and report system tests):
 ```bash
 pytest
 ```
@@ -82,6 +83,11 @@ Run only trust security tests (10 tests - token blacklisting, cache invalidation
 pytest tests/test_trust_security.py -v
 ```
 
+Run only report system tests (12 tests - Phase 4):
+```bash
+pytest tests/test_reports.py -v
+```
+
 Run SMTP integration test (skipped unless SMTP env vars are set):
 ```bash
 pytest tests/test_email_integration.py -m integration
@@ -99,5 +105,6 @@ markers =
 - **Email Verification**: Links use `EMAIL_VERIFY_BASE_URL`; ensure it matches your deployment URL in production.
 - **Token Blacklist**: Logged-out/rotated tokens are cached in Redis with TTL matching token expiration.
 - **Trust Endpoint Security**: Built-in rate limiting (10 calls/hour per user_id), automatic access token blacklisting on role changes, and cache invalidation ensure trust adjustments are secure and eventually consistent.
+- **Report System (Phase 4)**: Contributors can report specific edit actions (not just content). Auto-lock triggers at 10+ distinct trusted reporters. Only approved/pending reports count toward threshold (rejected reports excluded). Admin review required for all reports.
 - **Production SMTP**: Mailtrap sandbox has low rate limits. For production, use a dedicated SMTP service (e.g., AWS SES) with Celery retry backoff.
 - **Avatar Processing**: Async task resizes avatars to target sizes and updates user trust_score/reputation_percentage based on upload success.

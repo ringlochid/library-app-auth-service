@@ -31,6 +31,7 @@ from app.schemas.user import (
     AvatarCommitRequest,
 )
 from app.schemas.token import AccessTokenResponse
+from app.schemas.session import SessionItem, SessionListResponse
 from app.tasks.email import send_verify_email
 from app.tasks.media import process_upload
 from app.settings import settings
@@ -206,6 +207,8 @@ async def user_login(
         expires_at=expires_at,
         user_agent=user_agent,
         ip_address=ip_address,
+        last_used_at=issued_at,  # Phase 5: Track initial usage
+        last_used_ip=ip_address,
     )
 
     db.add(new_refresh_token)
@@ -257,6 +260,9 @@ async def reissue_access_token(
         db=db,
     )
     old_refresh_token.is_current = False
+    # Phase 5: Track last usage before rotating
+    old_refresh_token.last_used_at = _now_utc()
+    old_refresh_token.last_used_ip = meta.get("ip") if meta else None
 
     refresh_token_details = create_refresh_token(user.id, family_id)
     new_refresh_token_str = refresh_token_details["token"]
@@ -272,6 +278,8 @@ async def reissue_access_token(
         expires_at=expires_at,
         user_agent=meta.get("user_agent") if meta else None,
         ip_address=meta.get("ip") if meta else None,
+        last_used_at=issued_at,  # Phase 5: Track initial usage
+        last_used_ip=meta.get("ip") if meta else None,
     )
     db.add(new_refresh_token)
 
@@ -466,6 +474,56 @@ async def commit_email_verification(
     if user:
         await db.refresh(user)
         await delete_cached_user(user.id, r)
+
+
+@router.get("/sessions", response_model=SessionListResponse)
+async def list_sessions(
+    user: User = Depends(get_current_user_with_access_token),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    List all active refresh tokens (sessions) for the current user.
+    
+    Returns session details including:
+    - Device info (user_agent, parsed on client)
+    - Location (IP addresses)
+    - Timestamps (issued_at, last_used_at, expires_at)
+    - Current session flag (is_current)
+    
+    Use this to show users where they're logged in.
+    """
+    # Load user's refresh tokens
+    stmt = (
+        select(RefreshToken)
+        .where(
+            RefreshToken.user_id == user.id,
+            RefreshToken.revoked == False,
+            RefreshToken.expires_at > _now_utc()
+        )
+        .order_by(RefreshToken.last_used_at.desc().nulls_last())
+    )
+    result = await db.execute(stmt)
+    tokens = result.scalars().all()
+    
+    sessions = [
+        SessionItem(
+            id=token.id,
+            family_id=str(token.family_id),
+            issued_at=token.issued_at,
+            expires_at=token.expires_at,
+            last_used_at=token.last_used_at,
+            user_agent=token.user_agent,
+            ip_address=token.ip_address,
+            last_used_ip=token.last_used_ip,
+            is_current=token.is_current,
+        )
+        for token in tokens
+    ]
+    
+    return SessionListResponse(
+        sessions=sessions,
+        total=len(sessions)
+    )
 
 
 @router.get("/me", response_model=UserRead)

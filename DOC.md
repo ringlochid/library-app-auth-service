@@ -206,6 +206,25 @@ LIBRARY_SERVICE:
 }
 ```
 
+### Security Features (Built-in)
+
+The Auth Service provides **automatic security** for trust adjustments:
+
+1. **Rate Limiting**: 10 calls per hour per `user_id` (enforced server-side)
+   - Prevents abuse from Library Service bugs or compromised credentials
+   - Returns 429 Too Many Requests when exceeded
+   - Tracked per target user, not per calling service
+
+2. **Access Token Blacklisting**: When roles change (upgrade/downgrade)
+   - Old access tokens immediately blacklisted in Redis
+   - Users receive 401 on next request
+   - Must call `/auth/refresh` to get new token with updated roles/scopes
+
+3. **Cache Invalidation**: After every trust adjustment
+   - User cache cleared in Redis
+   - Next token refresh fetches fresh trust_score/roles from DB
+   - Ensures JWT eventually consistent within 15 minutes
+
 ### Trust Scoring Rules
 
 | Action | Delta | Notes |
@@ -316,38 +335,31 @@ async def approve_book(book_id: str, curator_id: str):
 - Ignore failures silently (log for debugging)
 - Use HTTP in production (only HTTPS)
 
-### Rate Limiting
+### Rate Limiting (Handled by Auth Service)
 
-Consider implementing rate limiting in Library Service:
+**Auth Service enforces rate limiting automatically** - no client-side implementation needed.
+
+**Limits:**
+- 10 trust adjustments per `user_id` per hour
+- Tracked server-side in Redis (token bucket algorithm)
+- Returns `429 Too Many Requests` when exceeded
+
+**Handle 429 Responses:**
 
 ```python
-from collections import defaultdict
-from datetime import datetime, timedelta
-
-class TrustAdjustmentRateLimiter:
-    """Prevent trust adjustment abuse."""
-    
-    def __init__(self):
-        self.adjustments = defaultdict(list)  # user_id -> [timestamps]
-        
-    async def check_rate_limit(self, user_id: str, delta: int) -> bool:
-        """
-        Allow max 10 adjustments per user per hour.
-        For negative deltas, allow max 5 per hour.
-        """
-        now = datetime.now()
-        hour_ago = now - timedelta(hours=1)
-        
-        # Clean old timestamps
-        self.adjustments[user_id] = [
-            ts for ts in self.adjustments[user_id] 
-            if ts > hour_ago
-        ]
-        
-        # Check limits
-        count = len(self.adjustments[user_id])
-        if delta < 0 and count >= 5:
-            return False  # Max 5 negative per hour
+async def adjust_trust_with_retry(user_id, delta, reason, source):
+    """Call trust endpoint with 429 handling."""
+    try:
+        return await auth_client.adjust_trust(user_id, delta, reason, source)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 429:
+            # Rate limit hit - log and continue without blocking user
+            logger.warning(
+                f"Trust adjustment rate limited for user {user_id}: {e.response.text}"
+            )
+            # Don't retry - accept the rate limit
+            return None
+        raise
         if count >= 10:
             return False  # Max 10 total per hour
             
@@ -735,6 +747,206 @@ GET /user/users/{user_id}/trust/history?limit=20&offset=0
 
 ---
 
+## Report System Integration (Phase 4)
+
+### Concept: Report Edit History, Not Content
+
+**Why?** Accurate attribution prevents punishing the wrong person.
+
+**Problem**: If you only report "Book #123", you can't tell if the spam was from the original creator or a later vandal.
+
+**Solution**: Report specific edits with `edit_id` from Library Service's edit history.
+
+```
+Timeline:
+1. Alice creates Book #123 (edit_id=1, action="create", actor_id=alice)
+2. Bob updates Book #123 (edit_id=2, action="update", actor_id=bob)  
+3. Carol vandalizes Book #123 (edit_id=3, action="update", actor_id=carol) ← REPORT THIS
+
+Result: Carol gets reported, not Alice/Bob
+```
+
+---
+
+### Jury Oversight of Deletions
+
+**Contributor+ users can view deleted content** (48h grace period):
+- Public: Cannot see deleted content
+- Contributor+ (trust_score >= 10): Can view with [DELETED] badge
+- Can report delete actions for abuse of power
+
+**UI Flow**:
+1. Curator deletes Book #123 → Library Service marks `status="deleted"`, `deleted_at=now()`
+2. Contributor views /books → Sees [DELETED] badge with 48h countdown
+3. Clicks "History" button → Timeline shows all edits including delete
+4. Clicks [Report] on delete action → Submits to Auth Service `/reports`
+
+---
+
+### Report Submission
+
+**Endpoint**: `POST /reports`
+
+**Auth**: JWT (contributor+ only, trust_score >= 10)
+
+**Request**:
+```json
+{
+  "target": {
+    "content_type": "book",
+    "content_id": 123,
+    "edit_id": 456,
+    "action": "delete",
+    "actor_id": "uuid-of-curator-who-deleted"
+  },
+  "reason": "Malicious deletion of quality content",
+  "category": "abuse_of_power"
+}
+```
+
+**Categories**:
+- `spam`: Spam content
+- `inappropriate`: Offensive/inappropriate content
+- `vandalism`: Destructive edits
+- `copyright`: Copyright violation
+- `other`: Other abuse
+
+**Response**: `201 Created`
+```json
+{
+  "id": "report-uuid",
+  "status": "submitted",
+  "message": "Report submitted for admin review"
+}
+```
+
+**Errors**:
+- `403`: User not contributor+ (trust_score < 10)
+- `409`: Duplicate report (already reported this edit_id)
+
+---
+
+### Auto-Lock Mechanism
+
+**Threshold**: 10+ distinct trusted reporters (trust_score >= 50)
+
+**Only counts**:
+- Reports with status `pending` or `approved`
+- `rejected` reports are excluded (false reports don't count)
+
+**When triggered**:
+1. User locked: `is_locked=True`, `locked_at=now()`
+2. Roles downgraded to `["user"]` (loses contributor+ privileges)
+3. Cannot create/edit content or vote in jury
+4. Trust history entry created for audit
+
+**Admin Review**: Admin reviews each report and approves/rejects. Approved reports count toward threshold.
+
+---
+
+### Admin Endpoints
+
+#### Review Report
+```
+POST /reports/{report_id}/review
+```
+**Auth**: JWT (admin only)
+
+**Request**:
+```json
+{
+  "action": "approve",
+  "notes": "Confirmed abuse of curator delete power"
+}
+```
+
+**Response**: `200 OK`
+```json
+{
+  "id": "report-uuid",
+  "status": "approved",
+  "reviewed_by": "admin-uuid",
+  "reviewed_at": "2025-12-14T10:30:00Z"
+}
+```
+
+#### Unlock User
+```
+POST /users/{user_id}/unlock
+```
+**Auth**: JWT (admin only)
+
+**Response**: `200 OK`
+```json
+{
+  "user_id": "uuid",
+  "is_locked": false,
+  "message": "User unlocked by admin"
+}
+```
+
+---
+
+### Library Service Implementation
+
+**1. Track Edit History**:
+```python
+class EditHistory:
+    id: int  # This is edit_id
+    content_type: Enum["book", "author", "collection"]
+    content_id: int
+    action: Enum["create", "update", "delete", "publish"]
+    actor_id: UUID
+    changes: JSONB
+    timestamp: datetime
+```
+
+**2. Soft Delete with Grace Period**:
+```python
+class Book:
+    status: Enum["draft", "published", "deleted"]
+    deleted_at: datetime | None
+    deleted_by: UUID | None
+
+# Celery task runs every 6 hours
+@periodic_task
+def purge_soft_deleted():
+    cutoff = now() - timedelta(hours=48)
+    Book.query.filter(
+        Book.status == "deleted",
+        Book.deleted_at < cutoff
+    ).delete()
+```
+
+**3. Visibility Rules**:
+```python
+def can_view_deleted(user: User) -> bool:
+    """Contributor+ can view deleted for jury oversight."""
+    return user.trust_score >= 10
+```
+
+**4. Report Button (Jury Only)**:
+```jsx
+function EditHistoryTimeline({ edits, user }) {
+  return (
+    <Timeline>
+      {edits.map(edit => (
+        <TimelineItem>
+          <strong>{edit.action}</strong> by @{edit.actor}
+          {user.trust_score >= 10 && (
+            <ReportButton 
+              onClick={() => reportEdit(edit)}
+            />
+          )}
+        </TimelineItem>
+      ))}
+    </Timeline>
+  );
+}
+```
+
+---
+
 ## FAQ
 
 **Q: Do I need to subscribe to Redis events?**  
@@ -757,6 +969,18 @@ A: No need. JWT is already a signed cache. Just validate JWT signature and read 
 
 **Q: What about real-time notifications when roles change?**  
 A: Implement WebSocket notifications in each service independently. No cross-service events needed.
+
+**Q: Why report edit history instead of content?**  
+A: Accurate attribution. If Book #123 was created by Alice but vandalized by Bob, reporting the book would punish Alice unfairly. Reporting Bob's specific edit (edit_id) targets the right person.
+
+**Q: Can public users report content?**  
+A: No. Only contributor+ users (trust_score >= 10) can submit reports. This aligns with jury voting privileges and prevents spam reports.
+
+**Q: What happens when a user is auto-locked?**  
+A: They're downgraded to "user" role temporarily, losing contributor+ privileges. They can still read content but cannot create/edit or vote. Admin must review reports and manually unlock.
+
+**Q: How does soft delete work with reports?**  
+A: Library Service marks content as `deleted` with 48h grace period. Contributor+ users can still view it and report the delete action. After 48h, content is permanently purged by Celery worker.
 
 ---
 

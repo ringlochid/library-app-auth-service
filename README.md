@@ -57,7 +57,7 @@ celery -A app.celery_app worker -Q media,email,default -l info
 ```
 
 ## Tests
-Run all tests (56 tests, including RBAC, schema, and trust tests):
+Run all tests (66 tests, including RBAC, schema, trust, and security tests):
 ```bash
 pytest
 ```
@@ -77,6 +77,11 @@ Run only trust system tests (18 tests):
 pytest tests/test_trust.py -v
 ```
 
+Run only trust security tests (10 tests - token blacklisting, cache invalidation):
+```bash
+pytest tests/test_trust_security.py -v
+```
+
 Run SMTP integration test (skipped unless SMTP env vars are set):
 ```bash
 pytest tests/test_email_integration.py -m integration
@@ -93,5 +98,6 @@ markers =
 - **RBAC System**: The jury-based RBAC implementation (Phase 1) includes 40+ scopes across 6 role tiers. Role calculation is automatic based on user trust_score and reputation_percentage, with blacklist override preventing all interactions.
 - **Email Verification**: Links use `EMAIL_VERIFY_BASE_URL`; ensure it matches your deployment URL in production.
 - **Token Blacklist**: Logged-out/rotated tokens are cached in Redis with TTL matching token expiration.
+- **Trust Endpoint Security**: Built-in rate limiting (10 calls/hour per user_id), automatic access token blacklisting on role changes, and cache invalidation ensure trust adjustments are secure and eventually consistent.
 - **Production SMTP**: Mailtrap sandbox has low rate limits. For production, use a dedicated SMTP service (e.g., AWS SES) with Celery retry backoff.
 - **Avatar Processing**: Async task resizes avatars to target sizes and updates user trust_score/reputation_percentage based on upload success.

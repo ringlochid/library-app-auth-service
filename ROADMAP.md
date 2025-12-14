@@ -233,62 +233,135 @@ reputation_percentage = ((3 + successful_submissions) / (3 + total_submissions))
 
 ## Phase 4: Report System & User Locking (2-3 days)
 
+### Key Design Decisions
+**Report on Edit History, Not Content**:
+- Users report specific edits (create/update/delete/publish actions)
+- Accurate attribution: punish vandal/abuser, not original creator
+- Example: Book created by Alice, vandalized by Bob → Report Bob's edit_id, not book_id
+
+**No Review Reporting** (Simplification):
+- Reviews have no edit history (lightweight, single-action)
+- Only books, authors, collections are reportable
+
+**Jury Oversight of Deletions**:
+- Contributor+ users can view soft-deleted content (48h grace period)
+- Can report delete actions for abuse of power
+- Public users cannot see deleted content
+
+**Admin Review Filtering**:
+- Only `approved` and `pending` reports count toward auto-lock
+- `rejected` reports are excluded (false reports don't count)
+
 ### Report Tracking
 - [ ] Create `content_reports` table:
   ```sql
   id UUID PRIMARY KEY
   reporter_id UUID REFERENCES users(id)
-  reported_user_id UUID REFERENCES users(id)
-  content_type ENUM('book', 'author', 'review', 'collection')
-  content_id UUID NOT NULL
-  reason TEXT
-  status ENUM('pending', 'reviewed', 'dismissed')
-  created_at TIMESTAMP DEFAULT NOW()
-  reviewed_at TIMESTAMP
+  target JSONB NOT NULL  -- Edit history pointer from Library Service
+  reason VARCHAR(500)
+  category ENUM('spam', 'inappropriate', 'vandalism', 'copyright', 'other')
+  status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending'
   reviewed_by UUID REFERENCES users(id)
+  reviewed_at TIMESTAMP
+  review_notes VARCHAR(1000)
+  created_at TIMESTAMP DEFAULT NOW()
+  
+  -- Indexes for performance
+  CREATE INDEX idx_reports_target_actor ON content_reports((target->>'actor_id'));
+  CREATE INDEX idx_reports_status ON content_reports(status);
+  CREATE INDEX idx_reports_reporter ON content_reports(reporter_id);
   ```
 
-- [ ] Add `report_count: int` to User model (counter for active reports)
-- [ ] Add `is_locked: bool` to User model (temporary lock, not blacklist)
-- [ ] Add `locked_at: datetime | None` to User model
+**Target JSONB Structure** (from Library Service edit_history):
+```json
+{
+  "content_type": "book" | "author" | "collection",
+  "content_id": 123,
+  "edit_id": 456,
+  "action": "create" | "update" | "delete" | "publish",
+  "actor_id": "uuid-of-person-who-made-edit"
+}
+```
+
+- [ ] User model already has `is_locked`, `locked_at`, `report_count` (Phase 2 prep)
 
 ### Report Endpoints
-- [ ] `POST /reports` - Submit a report
-  - Request: `{"content_type": "book", "content_id": "uuid", "reason": "Spam"}`
-  - Only trusted+ users can report
-  - Increment `report_count` on `reported_user_id`
-  - If `report_count >= 10` (distinct reporters): Set `is_locked=True` ~~, emit `user.locked`~~ (events removed)
-  - Returns: report confirmation
+- [ ] `POST /reports` - Submit report on edit action (contributor+ only)
+  - Request:
+    ```json
+    {
+      "target": {
+        "content_type": "book",
+        "content_id": 123,
+        "edit_id": 456,
+        "action": "delete",
+        "actor_id": "uuid"
+      },
+      "reason": "Malicious deletion of quality content",
+      "category": "abuse_of_power"
+    }
+    ```
+  - Only contributor+ users (trust_score >= 10) can report
+  - Prevent duplicate: Same user cannot report same edit_id twice
+  - Call `check_auto_lock()` after submission
+  - Returns: report confirmation with ID
 
-- [ ] `GET /admin/reports` - List all reports (admin only)
-  - Filter by: status, content_type, reported_user
+- [ ] `GET /reports` - List all reports (admin only)
+  - Filter by: status, category, actor_id
   - Pagination support
+  - Returns: list with reporter info, target details, timestamps
 
-- [ ] `POST /admin/reports/{report_id}/review` - Review a report (admin only)
-  - Request: `{"status": "dismissed"|"reviewed", "action": "none"|"blacklist"|"adjust_trust"}`
-  - Update report status
-  - Optionally blacklist user or adjust trust
+- [ ] `POST /reports/{report_id}/review` - Admin reviews report
+  - Request: `{"action": "approve"|"reject", "notes": "Reasoning..."}`
+  - Update `status`, `reviewed_by`, `reviewed_at`, `review_notes`
+  - If approved: Call `check_auto_lock(target.actor_id)`
+  - If rejected: Exclude from auto-lock count
+  - Returns: updated report
 
-- [ ] `POST /admin/users/{user_id}/unlock` - Unlock a locked user (admin only)
-  - Clears `is_locked`, resets `report_count`
-  - ~~Emits `user.unlocked` event~~ (events removed)
+- [ ] `POST /users/{user_id}/unlock` - Manually unlock user (admin only)
+  - Clears `is_locked`, `locked_at`
+  - Creates trust history entry: "Admin unlocked user"
+  - Returns: updated user
 
 ### Business Logic
+
+**Auto-Lock Threshold**:
+- [ ] Implement `check_auto_lock(actor_id: UUID) -> bool`:
+  - Count distinct trusted reporters (trust_score >= 50)
+  - Only count reports with status IN ('pending', 'approved')
+  - Exclude 'rejected' reports (false reports don't count)
+  - If count >= 10: Set `is_locked=True`, `locked_at=now()`
+  - Create trust history entry for audit trail
+
+**Locked User Restrictions**:
 - [ ] Locked users cannot:
-  - Create/edit content (books, authors, collections, reviews)
+  - Create/edit content (books, authors, collections)
   - Vote in jury system
+  - Submit reports
   - But CAN still read content and view their profile
-- [ ] Update `calculate_user_roles()` to check `is_locked`
-  - If locked, downgrade to "user" role temporarily (no contributor+ privileges)
+- [ ] `calculate_user_roles()` already checks `is_locked` (Phase 2)
+  - If locked, return `["user"]` (temporarily strip contributor+ privileges)
 - [ ] Locked status does NOT affect trust_score or reputation
+- [ ] Admin can manually unlock users
+
+**Jury Oversight** (Library Service implements):
+- [ ] Contributor+ users can view soft-deleted content
+- [ ] Deleted content shows [DELETED] badge with 48h countdown
+- [ ] History button shows all edits including delete action
+- [ ] Report button available on each edit (jury only)
 
 ### Testing
-- [ ] Test report submission increments counter
-- [ ] Test 10+ reports from distinct trusted users triggers lock
-- [ ] Test locked users lose contributor+ privileges
-- [ ] Test admin can unlock users
-- [ ] Test report review actions (dismiss, blacklist, adjust trust)
-- [ ] Test duplicate reports from same user are ignored
+- [ ] Test report submission requires contributor+ role (trust_score >= 10)
+- [ ] Test JSONB target structure validation
+- [ ] Test duplicate report prevention (same reporter + edit_id)
+- [ ] Test 10+ approved/pending reports from distinct trusted users triggers auto-lock
+- [ ] Test rejected reports excluded from auto-lock count
+- [ ] Test locked users downgraded to "user" role (lose contributor+ privileges)
+- [ ] Test admin can review reports (approve/reject with notes)
+- [ ] Test admin can manually unlock users
+- [ ] Test auto-lock creates trust history audit entry
+- [ ] Test reports on delete actions (abuse of curator power)
+- [ ] Test reports on create/update/publish actions (vandalism, spam)
 
 ---
 
@@ -486,26 +559,35 @@ CREATE INDEX idx_trust_history_user ON trust_history(user_id, created_at DESC);
 
 ### Phase 4: Report System
 ```sql
--- User locking
-ALTER TABLE users ADD COLUMN is_locked BOOLEAN DEFAULT FALSE;
-ALTER TABLE users ADD COLUMN locked_at TIMESTAMP;
-ALTER TABLE users ADD COLUMN report_count INTEGER DEFAULT 0;
+-- User locking (already exists from Phase 2 prep)
+-- ALTER TABLE users ADD COLUMN is_locked BOOLEAN DEFAULT FALSE;
+-- ALTER TABLE users ADD COLUMN locked_at TIMESTAMP;
+-- ALTER TABLE users ADD COLUMN report_count INTEGER DEFAULT 0;
 
 CREATE TABLE content_reports (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    reporter_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    reported_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    content_type VARCHAR(50), -- 'book', 'author', 'review', 'collection'
-    content_id UUID NOT NULL,
-    reason TEXT,
-    status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'reviewed', 'dismissed'
-    created_at TIMESTAMP DEFAULT NOW(),
+    reporter_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    target JSONB NOT NULL, -- {content_type, content_id, edit_id, action, actor_id}
+    reason VARCHAR(500) NOT NULL,
+    category VARCHAR(50) NOT NULL, -- 'spam', 'inappropriate', 'vandalism', 'copyright', 'other'
+    status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'approved', 'rejected'
+    reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
     reviewed_at TIMESTAMP,
-    reviewed_by UUID REFERENCES users(id)
+    review_notes VARCHAR(1000),
+    created_at TIMESTAMP DEFAULT NOW()
 );
-CREATE INDEX idx_reports_user ON content_reports(reported_user_id, status);
-CREATE INDEX idx_reports_content ON content_reports(content_type, content_id);
-CREATE UNIQUE INDEX idx_reports_unique ON content_reports(reporter_id, content_id) WHERE status = 'pending';
+
+-- Indexes for performance
+CREATE INDEX idx_reports_target_actor ON content_reports((target->>'actor_id'));
+CREATE INDEX idx_reports_status ON content_reports(status);
+CREATE INDEX idx_reports_reporter ON content_reports(reporter_id);
+CREATE INDEX idx_reports_created ON content_reports(created_at DESC);
+
+-- Prevent duplicate reports on same edit
+CREATE UNIQUE INDEX idx_reports_unique_edit ON content_reports(
+    reporter_id, 
+    (target->>'edit_id')
+) WHERE status IN ('pending', 'approved');
 ```
 
 ---

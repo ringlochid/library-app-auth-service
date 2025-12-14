@@ -9,8 +9,6 @@ from app.celery_app import app
 from app.database import AsyncSessionLocal
 from app.models import User
 from app.rbac import calculate_user_roles
-from app.events.event_schemas import UserRoleUpgradedEvent
-from app.events.emitter import emit_event
 
 
 def _now_utc() -> datetime:
@@ -88,16 +86,6 @@ def process_role_upgrade(self, user_id_str: str, target_roles: list[str]):
             user.pending_role_upgrade = None
             await db.commit()
             await db.refresh(user)
-            
-            # Emit role upgraded event
-            await emit_event(UserRoleUpgradedEvent(
-                user_id=user.id,
-                old_roles=old_roles,
-                new_roles=current_roles,
-                trust_score=user.trust_score,
-                reputation=user.reputation_percentage,
-                reason=user.pending_role_upgrade.get("reason", "Delayed upgrade completed") if user.pending_role_upgrade else "Delayed upgrade completed",
-            ))
             
             return {
                 "status": "upgrade_applied",

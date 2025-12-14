@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     RATE_LIMIT_AVATAR_COMMIT_CAPACITY: int = 4
     RATE_LIMIT_AVATAR_COMMIT_REFILL_TOKENS: int = 4
     RATE_LIMIT_AVATAR_COMMIT_REFILL_PERIOD_SECONDS: int = 600
+    RATE_LIMIT_TRUST_ADJUST_CAPACITY: int = 10
+    RATE_LIMIT_TRUST_ADJUST_REFILL_TOKENS: int = 10
+    RATE_LIMIT_TRUST_ADJUST_REFILL_PERIOD_SECONDS: int = 3600
     EMAIL_VERIFY_BASE_URL: str = "https://localhost:8000/verify-email?token="
     JWT_PRIVATE_KEY_PATH: str = "keys/private_key.pem"
     JWT_PUBLIC_KEY_PATH: str = "keys/public_key.pem"

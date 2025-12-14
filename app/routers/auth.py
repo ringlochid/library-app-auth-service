@@ -50,8 +50,6 @@ from app.cache import (
     make_rate_limit_key,
     consume_avatar_claim,
 )
-from app.events.event_schemas import UserCreatedEvent, UserVerifiedEvent
-from app.events.emitter import emit_event
 import uuid as uuid_pkg
 import time
 from typing import Set
@@ -100,16 +98,6 @@ async def create_user(
     )
     await db.commit()
     await db.refresh(new_user)
-    
-    # Emit user.created event
-    roles = calculate_user_roles(new_user)
-    await emit_event(UserCreatedEvent(
-        user_id=new_user.id,
-        email=new_user.email,
-        name=new_user.name,
-        roles=roles,
-        trust_score=new_user.trust_score,
-    ))
     
     return new_user
 
@@ -475,16 +463,8 @@ async def commit_email_verification(
         user.expires_at = None
     await db.commit()
     
-    # Emit user.verified event
-    if user and user.email_verified_at:
-        await db.refresh(user)
-        await emit_event(UserVerifiedEvent(
-            user_id=user.id,
-            email=user.email,
-            verified_at=user.email_verified_at,
-        ))
-    
     if user:
+        await db.refresh(user)
         await delete_cached_user(user.id, r)
 
 

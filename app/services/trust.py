@@ -6,16 +6,18 @@ from datetime import datetime, timezone, timedelta
 from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from redis.asyncio import Redis
 
 from app.models import User, TrustHistory
 from app.rbac import calculate_user_roles
 from app.settings import settings
-from app.events.event_schemas import (
-    UserTrustUpdatedEvent,
-    UserRoleDowngradedEvent,
-    UserBlacklistedEvent,
+from app.cache import (
+    get_access,
+    make_access_key,
+    make_access_blacklist_key,
+    cache_access_to_bl,
+    delete_cached_user,
 )
-from app.events.emitter import emit_event
 
 
 TrustSource = Literal["manual", "upload", "review", "social", "auto_blacklist"]
@@ -31,6 +33,7 @@ async def adjust_trust_score(
     delta: int,
     reason: str,
     source: TrustSource,
+    r: Redis | None = None,
 ) -> User:
     """
     Adjust user's trust score and handle role changes.
@@ -41,6 +44,7 @@ async def adjust_trust_score(
         delta: Change in trust score (can be negative)
         reason: Human-readable reason for the adjustment
         source: Source of the adjustment (manual, upload, review, social, auto_blacklist)
+        r: Redis connection for cache invalidation and token blacklisting
         
     Returns:
         Updated User object
@@ -50,6 +54,8 @@ async def adjust_trust_score(
         - Auto-blacklists if trust_score <= 0
         - Schedules delayed role upgrade if eligible
         - Applies immediate downgrade if thresholds lost
+        - Invalidates user cache in Redis
+        - Blacklists current access token if roles changed (forces token refresh)
     """
     # Load user
     stmt = select(User).where(User.id == user_id)
@@ -80,7 +86,6 @@ async def adjust_trust_score(
     user.trust_score = new_score
     
     # Auto-blacklist if trust score hits 0
-    was_blacklisted = user.is_blacklisted
     if new_score == 0 and not user.is_blacklisted:
         user.is_blacklisted = True
         # Clear any pending upgrades
@@ -125,39 +130,27 @@ async def adjust_trust_score(
             # DOWNGRADE: Apply immediately
             user.pending_role_upgrade = None
             user.roles = new_roles  # Apply new roles immediately
-            
-            # Emit downgrade event
-            await emit_event(UserRoleDowngradedEvent(
-                user_id=user.id,
-                old_roles=old_roles,
-                new_roles=new_roles,
-                trust_score=new_score,
-                reputation=user.reputation_percentage,
-                reason=f"Trust score dropped to {new_score}",
-            ))
+        
+        # Roles changed (upgrade or downgrade) - blacklist current access token
+        if r is not None:
+            access_key = make_access_key(user_id)
+            cached_access = await get_access(access_key, r)
+            if cached_access:
+                # Blacklist the old token to force client to refresh
+                jti = cached_access.get("jti")
+                exp_ts = cached_access.get("exp")
+                if jti and exp_ts:
+                    now_ts = int(_now_utc().timestamp())
+                    ttl = max(exp_ts - now_ts, 1)
+                    bl_key = make_access_blacklist_key(jti)
+                    await cache_access_to_bl(bl_key, r, ttl)
     
     await db.commit()
     await db.refresh(user)
     
-    # Emit blacklist event if newly blacklisted
-    if not was_blacklisted and user.is_blacklisted:
-        await emit_event(UserBlacklistedEvent(
-            user_id=user.id,
-            trust_score=new_score,
-            reason=f"Trust score reached {new_score} (auto-blacklist)",
-            automatic=True,
-        ))
-    
-    # Emit trust_updated event
-    await emit_event(UserTrustUpdatedEvent(
-        user_id=user.id,
-        old_score=old_score,
-        new_score=new_score,
-        delta=delta,
-        reason=reason,
-        source=source,
-        pending_upgrade=user.pending_role_upgrade,
-    ))
+    # Always invalidate user cache after trust adjustment
+    if r is not None:
+        await delete_cached_user(user_id, r)
     
     return user
 

@@ -136,58 +136,29 @@ reputation_percentage = ((3 + successful_submissions) / (3 + total_submissions))
 
 ---
 
-## Phase 3: Event Emission & Service Integration ✅ COMPLETED
+## Phase 3: Event Emission & Service Integration ❌ REMOVED
 
-### Event Infrastructure
-- [x] Create `app/events/` module:
-  - `event_schemas.py` - Pydantic schemas for all event types
-  - `emitter.py` - `emit_event(event_type, payload)` function
-  - Redis pub/sub OR Celery task-based implementation
-  - Event validation and serialization
+**Reason for Removal**: Simplified architecture - JWT tokens serve as ground truth for authorization.
 
-### Event Types
-**User Lifecycle:**
-- [x] `user.created` - New user registration
-  ```json
-  {
-    "event": "user.created",
-    "user_id": "uuid",
-    "email": "user@example.com",
-    "name": "username",
-    "roles": ["user"],
-    "trust_score": 0,
-    "timestamp": "2025-12-14T10:00:00Z"
-  }
-  ```
+**Why Events Are Redundant**:
+- Access tokens already contain roles, scopes, trust_score, and reputation
+- Tokens are short-lived (15 min) ensuring frequent sync
+- Library Service reads user state from JWT on every request
+- No need for event-driven cache synchronization
 
-- [x] `user.verified` - Email verification completed
-  ```json
-  {
-    "event": "user.verified",
-    "user_id": "uuid",
-    "email": "user@example.com",
-    "verified_at": "2025-12-14T10:05:00Z",
-    "timestamp": "2025-12-14T10:05:00Z"
-  }
-  ```
+**Simple Alternatives Implemented**:
+1. **Session Revocation**: Use existing blacklist helper (`cache_access_to_bl`) when users are banned/locked
+2. **User Notifications**: Handled via WebSocket in each service (no cross-service events needed)
+3. **Analytics/Audit**: Keep simple - don't over-engineer early
 
-**Trust & Role Changes:**
-- [x] `user.trust_updated` - Trust score changed
-  ```json
-  {
-    "event": "user.trust_updated",
-    "user_id": "uuid",
-    "old_score": 5,
-    "new_score": 15,
-    "delta": 10,
-    "reason": "Book approved",
-    "source": "upload",
-    "pending_upgrade": {"target_roles": ["user", "contributor"], "scheduled_at": "..."},
-    "timestamp": "2025-12-14T10:00:00Z"
-  }
-  ```
+### ~~Event Infrastructure~~ (Removed for simplicity)
 
-- [x] `user.role_upgraded` - Role promotion applied (after 15min delay)
+### ~~Event Types~~ (JWT contains all necessary state)
+**~~User Lifecycle~~:** (Removed)
+- [ ] ~~`user.created`~~ - JWT is source of truth
+- [ ] ~~`user.verified`~~ - Not needed
+- [ ] ~~`user.trust_updated`~~ - JWT refreshes every 15 min
+- [ ] ~~`user.role_upgraded`~~ - Roles in JWT
   ```json
   {
     "event": "user.role_upgraded",
@@ -247,15 +218,14 @@ reputation_percentage = ((3 + successful_submissions) / (3 + total_submissions))
 - [x] Emit `user.blacklisted` when `is_blacklisted` set to True
 - [x] Emit `user.locked` when report threshold crossed (prepared, will trigger in Phase 4)
 
-### Service-to-Service Authentication
+### Service-to-Service Authentication (Kept from Phase 2)
 - [x] Add `X-Service-Token` header validation *(completed in Phase 2)*
 - [x] Environment variable: `SERVICE_API_KEY` (shared secret)
 - [x] Middleware: Validate service token for trust endpoints
 - [x] Only Library Service can call `/admin/users/{user_id}/trust/adjust`
 
-### Testing
-- [x] Test events are emitted with correct payload
-- [x] Test event delivery (Redis pub/sub)
+### ~~Testing~~ (Not Applicable)
+- [ ] ~~Test events are emitted~~ - Events removed
 - [x] Test service token authentication *(completed in Phase 2)*
 - [x] Test unauthorized service calls return 401 *(completed in Phase 2)*
 
@@ -287,7 +257,7 @@ reputation_percentage = ((3 + successful_submissions) / (3 + total_submissions))
   - Request: `{"content_type": "book", "content_id": "uuid", "reason": "Spam"}`
   - Only trusted+ users can report
   - Increment `report_count` on `reported_user_id`
-  - If `report_count >= 10` (distinct reporters): Set `is_locked=True`, emit `user.locked`
+  - If `report_count >= 10` (distinct reporters): Set `is_locked=True` ~~, emit `user.locked`~~ (events removed)
   - Returns: report confirmation
 
 - [ ] `GET /admin/reports` - List all reports (admin only)
@@ -301,7 +271,7 @@ reputation_percentage = ((3 + successful_submissions) / (3 + total_submissions))
 
 - [ ] `POST /admin/users/{user_id}/unlock` - Unlock a locked user (admin only)
   - Clears `is_locked`, resets `report_count`
-  - Emits `user.unlocked` event
+  - ~~Emits `user.unlocked` event~~ (events removed)
 
 ### Business Logic
 - [ ] Locked users cannot:
@@ -562,15 +532,11 @@ await auth_service.adjust_trust(user_id, delta=3, reason="Book subscribed", sour
 ```
 
 ### What Library Service Will Consume
-**JWT Token Validation**:
-- Extract `roles` and `scopes` from access token
+**JWT Token Validation** (Primary Integration):
+- Extract `roles` and `scopes` from access token on every request
 - Check scopes before allowing operations (e.g., `books:publish_direct`)
-
-**Event Subscriptions** (Redis pub/sub or message queue):
-- `user.role_upgraded` - Update local user cache
-- `user.role_downgraded` - Revoke permissions immediately
-- `user.blacklisted` - Block all user actions
-- `user.locked` - Temporarily restrict user actions
+- JWT auto-syncs roles/trust within 15 minutes (token refresh)
+- No event subscriptions needed - JWT is ground truth
 
 ### Service Authentication
 - Shared secret: `X-Service-Token: ${SERVICE_API_KEY}`
@@ -587,12 +553,14 @@ await auth_service.adjust_trust(user_id, delta=3, reason="Book subscribed", sour
 - [x] README updated with jury system details
 - [x] .gitignore comprehensive
 
-**Phase 2-6** (Upcoming)
-- [ ] Trust adjustment API tested
-- [ ] Upgrade delay mechanism verified (15 min)
-- [ ] Reputation formula validated
-- [ ] Event emission with all event types
-- [ ] Service-to-service auth working
+**Phase 2** ✅
+- [x] Trust adjustment API tested
+- [x] Upgrade delay mechanism verified (15 min)
+- [x] Reputation formula validated
+- [x] ~~Event emission with all event types~~ (removed - JWT is ground truth)
+- [x] Service-to-service auth working
+
+**Phase 4-6** (Upcoming)
 - [ ] Report system with 10+ trusted users threshold
 - [ ] User locking/unlocking by admin
 - [ ] Session management endpoints
@@ -611,11 +579,11 @@ await auth_service.adjust_trust(user_id, delta=3, reason="Book subscribed", sour
 |-------|--------|--------|
 | Phase 1: Jury RBAC System | 1-2 days | ✅ **COMPLETE** |
 | Phase 2: Trust & Reputation | 2-3 days | ✅ **COMPLETE** |
-| Phase 3: Event Emission | 1-2 days | ✅ **COMPLETE** |
+| Phase 3: ~~Event Emission~~ | ~~1-2 days~~ | ❌ **REMOVED** (JWT is ground truth) |
 | Phase 4: Report & Locking | 2-3 days | ⏸️ Not Started |
 | Phase 5: Session Management | 1-2 days | ⏸️ Not Started |
 | Phase 6: Observability | 1 day | ⏸️ Not Started |
-| **Total** | **8-13 days** | **~50% Complete** |
+| **Total** | **6-11 days** | **~33% Complete** (Phases 1-2) |
 
 ---
 

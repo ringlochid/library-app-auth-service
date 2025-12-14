@@ -1,10 +1,14 @@
 from datetime import datetime, timezone, timedelta
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from redis.asyncio import Redis
 
 from app.database import get_db
+from app.redis_client import get_redis
+from app.cache import token_bucket_allow, make_rate_limit_key
+from app.settings import settings
 from app.models import User, TrustHistory
 from app.security import get_current_user_with_access_token
 from app.dependencies.service_auth import verify_service_token
@@ -24,7 +28,9 @@ router = APIRouter(prefix='/user', tags=["user services"])
 async def adjust_user_trust(
     user_id: uuid.UUID,
     payload: TrustAdjustRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
+    r: Redis = Depends(get_redis),
     _service_auth: None = Depends(verify_service_token),
 ):
     """
@@ -40,7 +46,22 @@ async def adjust_user_trust(
     Auto-blacklist occurs at trust_score = 0.
     
     Requires: X-Service-Token header or admin authentication
+    Rate limited: 10 calls per hour per user_id
     """
+    # Rate limit by target user_id (prevents spamming same user)
+    allowed, remaining = await token_bucket_allow(
+        make_rate_limit_key("trust_adjust", str(user_id)),
+        capacity=settings.RATE_LIMIT_TRUST_ADJUST_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_TRUST_ADJUST_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_TRUST_ADJUST_REFILL_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded for user {user_id}. Try again later."
+        )
+    
     try:
         user = await adjust_trust_score(
             user_id=user_id,
@@ -48,6 +69,7 @@ async def adjust_user_trust(
             reason=payload.reason,
             source=payload.source,
             db=db,
+            r=r,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -135,12 +157,7 @@ async def get_user_trust_history(
         raise HTTPException(status_code=404, detail="User not found")
     
     # Get history
-    history = await get_trust_history(user_id, db, limit, offset)
-    
-    # Get total count
-    count_stmt = select(func.count()).select_from(TrustHistory).where(TrustHistory.user_id == user_id)
-    total_result = await db.execute(count_stmt)
-    total = total_result.scalar() or 0
+    history, total = await get_trust_history(db, user_id, limit, offset)
     
     return TrustHistoryResponse(
         user_id=user_id,

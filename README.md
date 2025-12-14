@@ -19,9 +19,6 @@ FastAPI-based authentication service with JWT access/refresh tokens, email verif
   - Delayed role upgrades (15m, double-check) and immediate downgrades
   - Pending upgrades tracked on user, locked users temporarily forced to "user" role
 - **Service-to-Service Auth**: `X-Service-Token` header validation for admin trust adjustments.
-- **Event Emission (Phase 3)**: Redis pub/sub for Library Service integration:
-  - 7 event types: user.created, user.verified, user.trust_updated, user.role_upgraded, user.role_downgraded, user.blacklisted, user.locked
-  - Graceful degradation if Redis unavailable (non-blocking)
 - **Redis Caching**: User info and token blacklist with TTL.
 - **Celery Worker**: Async email sending with retry logic (Mailtrap/SMTP by default).
 
@@ -60,7 +57,7 @@ celery -A app.celery_app worker -Q media,email,default -l info
 ```
 
 ## Tests
-Run all tests (68 tests, including RBAC, schema, trust, and event tests):
+Run all tests (56 tests, including RBAC, schema, and trust tests):
 ```bash
 pytest
 ```
@@ -78,11 +75,6 @@ pytest tests/test_user_schema.py -v
 Run only trust system tests (18 tests):
 ```bash
 pytest tests/test_trust.py -v
-```
-
-Run only event system tests (12 tests):
-```bash
-pytest tests/test_events.py -v
 ```
 
 Run SMTP integration test (skipped unless SMTP env vars are set):

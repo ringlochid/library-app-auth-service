@@ -10,6 +10,46 @@ from app.schemas.user import UserRead
 from app.settings import settings
 
 
+# Helper function to create complete user data with all required fields
+def create_user_data(
+    user_id=None,
+    name="testuser",
+    email="test@example.com",
+    is_active=True,
+    is_admin=False,
+    is_blacklisted=False,
+    roles=None,
+    trust_score=0,
+    reputation_percentage=100.0,
+    scopes=None,
+    avatar_key=None,
+):
+    """Create complete user data dict with all required fields."""
+    if user_id is None:
+        user_id = uuid.uuid4()
+    if roles is None:
+        roles = ["user"]
+    if scopes is None:
+        scopes = []
+    
+    now = datetime.now(timezone.utc)
+    return {
+        "id": user_id,
+        "name": name,
+        "email": email,
+        "created_at": now,
+        "updated_at": now,
+        "is_active": is_active,
+        "is_admin": is_admin,
+        "is_blacklisted": is_blacklisted,
+        "roles": roles,
+        "trust_score": trust_score,
+        "reputation_percentage": reputation_percentage,
+        "scopes": scopes,
+        "avatar_key": avatar_key,
+    }
+
+
 def test_avatar_urls_generated_correctly(monkeypatch):
     """
     Test that avatar_urls computes all size variants with correct S3 URLs.
@@ -18,21 +58,7 @@ def test_avatar_urls_generated_correctly(monkeypatch):
     monkeypatch.setattr(settings, "S3_MEDIA_REGION", "us-east-1")
     monkeypatch.setattr(settings, "AVATAR_TARGET_SIZES", [512, 256, 128, 64])
 
-    user_id = uuid.uuid4()
-    now = datetime.now(timezone.utc)
-    
-    user_data = {
-        "id": user_id,
-        "name": "testuser",
-        "email": "test@example.com",
-        "created_at": now,
-        "updated_at": now,
-        "is_active": True,
-        "is_admin": False,
-        "scopes": [],
-        "avatar_key": "avatars/550e8400-e29b/a1b2c3d4/512.webp",
-    }
-
+    user_data = create_user_data(avatar_key="avatars/550e8400-e29b/a1b2c3d4/512.webp")
     user = UserRead(**user_data)
 
     assert user.avatar_urls is not None
@@ -60,21 +86,7 @@ def test_avatar_urls_with_jpg_extension(monkeypatch):
     monkeypatch.setattr(settings, "S3_MEDIA_REGION", "ap-southeast-2")
     monkeypatch.setattr(settings, "AVATAR_TARGET_SIZES", [512, 256, 128, 64])
 
-    user_id = uuid.uuid4()
-    now = datetime.now(timezone.utc)
-    
-    user_data = {
-        "id": user_id,
-        "name": "jpguser",
-        "email": "jpg@example.com",
-        "created_at": now,
-        "updated_at": now,
-        "is_active": True,
-        "is_admin": False,
-        "scopes": [],
-        "avatar_key": "avatars/user-id/uuid-123/512.jpg",
-    }
-
+    user_data = create_user_data(name="jpguser", email="jpg@example.com", avatar_key="avatars/user-id/uuid-123/512.jpg")
     user = UserRead(**user_data)
 
     assert user.avatar_urls is not None
@@ -92,21 +104,7 @@ def test_avatar_urls_returns_none_when_no_key(monkeypatch):
     monkeypatch.setattr(settings, "S3_MEDIA_BUCKET", "test-bucket")
     monkeypatch.setattr(settings, "S3_MEDIA_REGION", "us-east-1")
 
-    user_id = uuid.uuid4()
-    now = datetime.now(timezone.utc)
-    
-    user_data = {
-        "id": user_id,
-        "name": "noavataruser",
-        "email": "noavatar@example.com",
-        "created_at": now,
-        "updated_at": now,
-        "is_active": True,
-        "is_admin": False,
-        "scopes": [],
-        "avatar_key": None,
-    }
-
+    user_data = create_user_data(name="noavataruser", email="noavatar@example.com", avatar_key=None)
     user = UserRead(**user_data)
     assert user.avatar_urls is None
 
@@ -118,21 +116,7 @@ def test_avatar_urls_returns_none_when_s3_bucket_not_configured(monkeypatch):
     monkeypatch.setattr(settings, "S3_MEDIA_BUCKET", None)
     monkeypatch.setattr(settings, "S3_MEDIA_REGION", "us-east-1")
 
-    user_id = uuid.uuid4()
-    now = datetime.now(timezone.utc)
-    
-    user_data = {
-        "id": user_id,
-        "name": "noS3user",
-        "email": "nos3@example.com",
-        "created_at": now,
-        "updated_at": now,
-        "is_active": True,
-        "is_admin": False,
-        "scopes": [],
-        "avatar_key": "avatars/user-id/uuid-123/512.webp",
-    }
-
+    user_data = create_user_data(name="noS3user", email="nos3@example.com", avatar_key="avatars/user-id/uuid-123/512.webp")
     user = UserRead(**user_data)
     assert user.avatar_urls is None
 
@@ -144,21 +128,7 @@ def test_avatar_urls_returns_none_when_s3_region_not_configured(monkeypatch):
     monkeypatch.setattr(settings, "S3_MEDIA_BUCKET", "test-bucket")
     monkeypatch.setattr(settings, "S3_MEDIA_REGION", None)
 
-    user_id = uuid.uuid4()
-    now = datetime.now(timezone.utc)
-    
-    user_data = {
-        "id": user_id,
-        "name": "noregionuser",
-        "email": "noregion@example.com",
-        "created_at": now,
-        "updated_at": now,
-        "is_active": True,
-        "is_admin": False,
-        "scopes": [],
-        "avatar_key": "avatars/user-id/uuid-123/512.webp",
-    }
-
+    user_data = create_user_data(name="noregionuser", email="noregion@example.com", avatar_key="avatars/user-id/uuid-123/512.webp")
     user = UserRead(**user_data)
     assert user.avatar_urls is None
 
@@ -170,21 +140,7 @@ def test_avatar_urls_handles_malformed_key(monkeypatch):
     monkeypatch.setattr(settings, "S3_MEDIA_BUCKET", "test-bucket")
     monkeypatch.setattr(settings, "S3_MEDIA_REGION", "us-east-1")
 
-    user_id = uuid.uuid4()
-    now = datetime.now(timezone.utc)
-    
-    user_data = {
-        "id": user_id,
-        "name": "malformeduser",
-        "email": "malformed@example.com",
-        "created_at": now,
-        "updated_at": now,
-        "is_active": True,
-        "is_admin": False,
-        "scopes": [],
-        "avatar_key": "avatars/user-id/uuid-123/512",  # No extension
-    }
-
+    user_data = create_user_data(name="malformeduser", email="malformed@example.com", avatar_key="avatars/user-id/uuid-123/512")
     user = UserRead(**user_data)
     # Should gracefully return None for invalid key format
     assert user.avatar_urls is None
@@ -197,21 +153,7 @@ def test_avatar_urls_handles_malformed_key_no_slash(monkeypatch):
     monkeypatch.setattr(settings, "S3_MEDIA_BUCKET", "test-bucket")
     monkeypatch.setattr(settings, "S3_MEDIA_REGION", "us-east-1")
 
-    user_id = uuid.uuid4()
-    now = datetime.now(timezone.utc)
-    
-    user_data = {
-        "id": user_id,
-        "name": "invalidkeyuser",
-        "email": "invalidkey@example.com",
-        "created_at": now,
-        "updated_at": now,
-        "is_active": True,
-        "is_admin": False,
-        "scopes": [],
-        "avatar_key": "singlepartkey.webp",  # No slashes
-    }
-
+    user_data = create_user_data(name="invalidkeyuser", email="invalidkey@example.com", avatar_key="singlepartkey.webp")
     user = UserRead(**user_data)
     # Should gracefully return None for invalid key format
     assert user.avatar_urls is None
@@ -226,21 +168,7 @@ def test_avatar_urls_respects_dynamic_target_sizes(monkeypatch):
     # Custom sizes: only 256 and 128
     monkeypatch.setattr(settings, "AVATAR_TARGET_SIZES", [256, 128])
 
-    user_id = uuid.uuid4()
-    now = datetime.now(timezone.utc)
-    
-    user_data = {
-        "id": user_id,
-        "name": "customsizesuser",
-        "email": "customsizes@example.com",
-        "created_at": now,
-        "updated_at": now,
-        "is_active": True,
-        "is_admin": False,
-        "scopes": [],
-        "avatar_key": "avatars/user-id/uuid-123/256.webp",
-    }
-
+    user_data = create_user_data(name="customsizesuser", email="customsizes@example.com", avatar_key="avatars/user-id/uuid-123/256.webp")
     user = UserRead(**user_data)
 
     assert user.avatar_urls is not None

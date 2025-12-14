@@ -7,9 +7,11 @@ from app.models import User
 
 # Role definitions
 ROLES = {
+    "blacklisted": "Read-only access, cannot interact (manual enforcement)",
     "user": "Regular reader (default)",
     "contributor": "Can create/manage books and authors (auto at trust_score >= 10)",
-    "moderator": "Review content, handle reports (auto at trust_score >= 50)",
+    "trusted": "Bypass queue, weighted voting (auto at trust_score >= 50 AND reputation >= 80%)",
+    "curator": "Instant approve/reject power (auto at trust_score >= 80 AND reputation >= 90%)",
     "admin": "System administration (manual only)",
 }
 

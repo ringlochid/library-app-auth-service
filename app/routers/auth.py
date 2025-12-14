@@ -1,6 +1,5 @@
 import hashlib
 from datetime import datetime, timezone, timedelta
-from os import path
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, Request, Cookie
 from sqlalchemy import select, func, text
@@ -22,6 +21,7 @@ from app.security import (
     get_current_user_with_refresh_token,
     decode_refresh_token,
 )
+from app.rbac import calculate_user_roles, get_scopes_for_roles
 from app.schemas.user import (
     UserCreate,
     UserRead,
@@ -31,8 +31,8 @@ from app.schemas.user import (
     AvatarCommitRequest,
 )
 from app.schemas.token import AccessTokenResponse
-from app.services.email import send_email
 from app.tasks.email import send_verify_email
+from app.tasks.media import process_upload
 from app.settings import settings
 from app.services.auth_tokens import reuse_detection
 from app.services.storage import get_s3_client
@@ -169,7 +169,18 @@ async def user_login(
         bl_key = make_access_blacklist_key(cached_jti)
         await cache_access_to_bl(bl_key, r, ttl=bl_ttl)
 
-    access_token, ac_jti, ac_exp = create_access_token(curr_user.id, curr_user.is_admin)
+    # Calculate roles and scopes for RBAC
+    roles = calculate_user_roles(curr_user)
+    scopes = get_scopes_for_roles(roles)
+    
+    access_token, ac_jti, ac_exp = create_access_token(
+        curr_user.id, 
+        curr_user.is_admin,
+        roles=roles,
+        scopes=scopes,
+        trust_score=curr_user.trust_score,
+        reputation_percentage=curr_user.reputation_percentage
+    )
 
     await cache_access(key, ac_jti, ac_exp, r)
 
@@ -284,7 +295,19 @@ async def reissue_access_token(
         )
         bl_key = make_access_blacklist_key(cached_jti)
         await cache_access_to_bl(bl_key, r, ttl=bl_ttl)
-    new_access_token, ac_jti, ac_exp = create_access_token(user.id, user.is_admin)
+    
+    # Calculate roles and scopes for RBAC
+    roles = calculate_user_roles(user)
+    scopes = get_scopes_for_roles(roles)
+    
+    new_access_token, ac_jti, ac_exp = create_access_token(
+        user.id, 
+        user.is_admin,
+        roles=roles,
+        scopes=scopes,
+        trust_score=user.trust_score,
+        reputation_percentage=user.reputation_percentage
+    )
     await cache_access(key, ac_jti, ac_exp, r)
     return {"access_token": new_access_token, "token_type": "bearer"}
 
@@ -402,7 +425,7 @@ async def send_email_verification(
     # test
     verify_url = f"{settings.EMAIL_VERIFY_BASE_URL}{verification_token}"
     body = f"your verification link is : {verify_url}"
-    send_verify_email(to=email, subject="verification", body=body)
+    send_verify_email.delay(to=email, subject="verification", body=body)
 
 
 @router.get("/verify-email", status_code=204)
@@ -575,7 +598,7 @@ async def commit_avatar(
     if exp_ts and now_ts > exp_ts:
         raise HTTPException(status_code=400, detail="Upload claim has expired")
 
-    # Optional fast-fail: ensure object exists and matches claim expectations.
+    # fast-fail: ensure object exists and matches claim expectations.
     try:
         head = s3_client.head_object(Bucket=settings.S3_MEDIA_BUCKET, Key=tmp_key)
         size = head.get("ContentLength") or 0
@@ -591,8 +614,6 @@ async def commit_avatar(
         raise HTTPException(status_code=400, detail="Upload not found or expired")
 
     try:
-        from app.tasks.media import process_upload
-
         process_upload.delay(tmp_key)
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Failed to enqueue processing") from exc

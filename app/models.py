@@ -6,8 +6,10 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Index,
+    Integer,
     String,
     Uuid,
     func,
@@ -35,10 +37,24 @@ class User(Base):
     is_admin: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("FALSE")
     )
+    is_blacklisted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("FALSE")
+    )
     # profile fields
     avatar_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     bio: Mapped[str | None] = mapped_column(String(500), nullable=True)
     preferences: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    
+    # roles and permissions
+    roles: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[\"user\"]'::jsonb")
+    )
+    trust_score: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    reputation_percentage: Mapped[float] = mapped_column(
+        Float, nullable=False, server_default=text("100.0")
+    )
     scopes: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
@@ -73,8 +89,12 @@ class User(Base):
 
     __table_args__ = (
         CheckConstraint("jsonb_typeof(scopes) = 'array'", name="ck_users_scopes_array"),
+        CheckConstraint("jsonb_typeof(roles) = 'array'", name="ck_users_roles_array"),
+        CheckConstraint("trust_score >= 0", name="ck_users_trust_score_positive"),
+        CheckConstraint("reputation_percentage >= 0 AND reputation_percentage <= 100", name="ck_users_reputation_range"),
         Index("ix_users_email_lower", func.lower(email), unique=True),
         Index("ix_users_name_lower", func.lower(name), unique=True),
+        Index("ix_users_trust_score", trust_score),
     )
 
 

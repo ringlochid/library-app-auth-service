@@ -57,6 +57,10 @@ def create_access_token(
     user_id: uuid.UUID,
     is_admin: bool,
     expires_delta: Optional[timedelta] = None,
+    roles: Optional[list[str]] = None,
+    scopes: Optional[list[str]] = None,
+    trust_score: Optional[int] = None,
+    reputation_percentage: Optional[float] = None,
 ) -> tuple[str, str, int]:
     now = _now_utc()
     expire = now + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
@@ -65,7 +69,11 @@ def create_access_token(
         "sub": str(user_id),
         "jti": jti,
         "type": "access",
-        "role": "admin" if is_admin else "user",
+        # "role": "admin" if is_admin else "user",  # Legacy field
+        "roles": roles or (["admin"] if is_admin else ["user"]),
+        "scopes": scopes or [],
+        "trust_score": trust_score or 0,
+        "reputation_percentage": reputation_percentage or 100.0,
         "iss": ISSUER,
         "aud": ACCESS_AUDIENCE,
         "iat": int(now.timestamp()),

@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.redis_client import close_redis, init_redis
-from app.routers import auth, user
+from app.routers import auth, user, reports
 
 
 @asynccontextmanager
@@ -45,3 +45,4 @@ async def add_request_meta(request: Request, call_next):
 
 app.include_router(auth.router)
 app.include_router(user.router)
+app.include_router(reports.router)

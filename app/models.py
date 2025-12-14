@@ -213,3 +213,65 @@ class TrustHistory(Base):
     __table_args__ = (
         Index("ix_trust_history_user_created", user_id, created_at.desc()),
     )
+
+
+class ContentReport(Base):
+    """
+    Track content abuse reports for jury oversight.
+    
+    Reports target specific edit actions (create/update/delete/publish) from Library Service.
+    Only approved/pending reports count toward auto-lock threshold (10+ distinct trusted reporters).
+    """
+    __tablename__ = "content_reports"
+    
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    reporter_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # JSONB target points to specific edit in Library Service
+    # Structure: {content_type, content_id, edit_id, action, actor_id}
+    target: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    category: Mapped[str] = mapped_column(String(50), nullable=False)
+    
+    # Admin review
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'pending'")
+    )
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    review_notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    
+    # Relationships
+    reporter: Mapped["User"] = relationship(foreign_keys=[reporter_id])
+    reviewer: Mapped["User"] = relationship(foreign_keys=[reviewed_by])
+    
+    __table_args__ = (
+        # Index on actor_id in JSONB for auto-lock queries
+        Index("ix_content_reports_target_actor", text("(target->>'actor_id')")),
+        Index("ix_content_reports_status", status),
+        Index("ix_content_reports_reporter", reporter_id),
+        Index("ix_content_reports_created", created_at.desc()),
+        # Prevent duplicate reports on same edit
+        Index(
+            "ux_content_reports_unique_edit",
+            reporter_id,
+            text("(target->>'edit_id')"),
+            unique=True,
+            postgresql_where=text("status IN ('pending', 'approved')"),
+        ),
+    )

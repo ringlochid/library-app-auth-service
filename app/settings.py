@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     CLAMAV_HOST: str | None = None
     CLAMAV_PORT: int = 3310
     ALEMBIC_DATABASE_URL: str | None = None
+    # Phase 2: Trust & roles
+    SERVICE_API_KEY: str | None = None  # Shared secret for service-to-service auth
+    ROLE_UPGRADE_DELAY_SECONDS: int = 900  # 15 minutes default
 
 
 settings = Settings()

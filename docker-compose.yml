@@ -19,7 +19,7 @@ services:
     depends_on:
       - redis
       - clamav
-    command: celery -A app.celery_app worker -Q email,default -l info
+    command: celery -A app.celery_app worker -Q media,email,default -l info
 
   clamav:
     image: clamav/clamav:stable

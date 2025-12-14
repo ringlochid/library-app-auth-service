@@ -170,6 +170,7 @@ def calculate_user_roles(user: User) -> List[str]:
     - trust_score >= 80 AND reputation >= 90%: curator (Instant approve/reject)
     - is_admin: admin (manual only, full access)
     - is_blacklisted: blacklisted (read-only, overrides everything)
+    - is_locked: temporarily downgraded to user (no contributor+ privileges)
     
     Args:
         user: User model instance
@@ -180,6 +181,10 @@ def calculate_user_roles(user: User) -> List[str]:
     # Blacklist check overrides everything
     if hasattr(user, 'is_blacklisted') and user.is_blacklisted:
         return ["blacklisted"]
+    
+    # Locked users are temporarily downgraded to base "user" role
+    if hasattr(user, 'is_locked') and user.is_locked:
+        return ["user"]
     
     roles = ["user"]  # Base role
     

@@ -13,7 +13,12 @@ FastAPI-based authentication service with JWT access/refresh tokens, email verif
   - **Trusted** (trust_score ≥50 + reputation ≥80%): Bypass queue + weighted voting (+5 weight)
   - **Curator** (trust_score ≥80 + reputation ≥90%): Instant approve/reject power
   - **Admin** (manual only): Full system access
-- **Trust & Reputation System**: Dynamic role calculation based on trust_score and reputation_percentage.
+- **Trust & Reputation System (Phase 2)**: Dynamic role calculation based on trust_score and reputation_percentage with:
+  - Trust adjustments per policy (uploads/reviews/social), auto-blacklist at trust ≤ 0
+  - Reputation with Laplace smoothing: (3 + successful) / (3 + total) * 100
+  - Delayed role upgrades (15m, double-check) and immediate downgrades
+  - Pending upgrades tracked on user, locked users temporarily forced to "user" role
+- **Service-to-Service Auth**: `X-Service-Token` header validation for admin trust adjustments.
 - **Redis Caching**: User info and token blacklist with TTL.
 - **Celery Worker**: Async email sending with retry logic (Mailtrap/SMTP by default).
 
@@ -33,6 +38,7 @@ Environment variables (see `.env` for examples):
 - **Email**: `MAIL_HOST`, `MAIL_PORT`, `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_FROM`, `EMAIL_VERIFY_BASE_URL`
 - **S3/Avatar**: `S3_MEDIA_BUCKET`, `S3_MEDIA_REGION`, `AVATAR_TARGET_SIZES` (e.g., "512,256,128,64")
 - **Celery**: `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `CELERY_TASK_DEFAULT_QUEUE`, `CELERY_TIMEZONE`
+- **Trust/Service Auth**: `SERVICE_API_KEY` (optional in dev), `ROLE_UPGRADE_DELAY_SECONDS` (default 900)
 
 ## Setup
 ```bash
@@ -47,11 +53,11 @@ uvicorn app.main:app --reload
 ```
 Celery worker:
 ```bash
-celery -A app.celery_app worker -Q email,default -l info
+celery -A app.celery_app worker -Q media,email,default -l info
 ```
 
 ## Tests
-Run all tests (38 tests, including RBAC and schema tests):
+Run all tests (56 tests, including RBAC, schema, and trust tests):
 ```bash
 pytest
 ```
@@ -64,6 +70,11 @@ pytest tests/test_rbac.py -v
 Run only schema tests (8 tests):
 ```bash
 pytest tests/test_user_schema.py -v
+```
+
+Run only trust system tests (18 tests):
+```bash
+pytest tests/test_trust.py -v
 ```
 
 Run SMTP integration test (skipped unless SMTP env vars are set):

@@ -58,6 +58,28 @@ class User(Base):
     scopes: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
+    
+    # Phase 2: Trust & reputation tracking
+    successful_submissions: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    total_submissions: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    pending_role_upgrade: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    
+    # Phase 4: Report & locking (prep for future)
+    is_locked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("FALSE")
+    )
+    locked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    report_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
     email_verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -163,3 +185,31 @@ class VerificationToken(Base):
     user: Mapped["User"] = relationship(back_populates="verification_tokens")
 
     __table_args__ = (Index("ix_verification_tokens_expires_at", expires_at),)
+
+
+class TrustHistory(Base):
+    """Track all trust score changes for audit and reputation calculation."""
+    __tablename__ = "trust_history"
+    
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    delta: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(50), nullable=False, server_default=text("'manual'")
+    )
+    old_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    new_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    
+    __table_args__ = (
+        Index("ix_trust_history_user_created", user_id, created_at.desc()),
+    )

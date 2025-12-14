@@ -23,8 +23,9 @@ app.conf.update(
     broker_connection_retry_on_startup=True,
 
     task_routes={
-        "tasks.media.*": {"queue": "media"},
-        "tasks.email.*": {"queue": "email"},
+        "app.tasks.media.*": {"queue": "media"},
+        "app.tasks.email.*": {"queue": "email"},
+        "app.tasks.roles.*": {"queue": "default"},
     },
 )
 

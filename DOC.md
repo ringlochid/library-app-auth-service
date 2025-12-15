@@ -622,6 +622,139 @@ async def adjust_user_trust_safely(user_id: str, delta: int, reason: str, source
 | **Curator** | trust ≥ 80 | ≥ 90% | ✅ | Instant approve/reject |
 | **Admin** | N/A | N/A | ❌ Manual | Full system access |
 
+### SCOPE
+
+```python
+SCOPES = {
+    # --- LEVEL 1: CONSUMER ---
+    "books:read": "Read published books",
+    "reviews:create": "Post reviews on published books",
+    
+    # --- LEVEL 2: DRAFTING (Standard User) ---
+    "books:draft": "Submit a book to the Pending Queue (Not public)",
+    "books:update_own": "Edit metadata/files of own pending/published books",
+    "books:delete_own": "Soft-delete own uploads",
+    
+    "authors:draft": "Submit author profile to Pending Queue",
+    "authors:update_own": "Edit own author profiles",
+    "authors:delete_own": "Delete own author profiles",
+    
+    "collections:create": "Create personal collections",
+    "collections:update_own": "Edit own collections",
+    "collections:delete_own": "Delete own collections",
+    
+    # --- LEVEL 3: WIKI & JURY (Contributor) ---
+    "books:edit_public_meta": "Edit title/tags/desc of ANY book (Wiki Mode)",
+    "authors:edit_public_meta": "Edit any author metadata (Wiki Mode)",
+    "jury:view": "Access the Review Queue",
+    "jury:vote": "Cast weighted vote on pending content (+1 for contributor)",
+    "reports:create": "Flag content for removal",
+    
+    # --- LEVEL 4: TRUSTED PRIVILEGES ---
+    "books:publish_direct": "Uploads go LIVE immediately (Bypass Jury)",
+    "books:replace_file": "Replace the PDF/EPUB file of ANY book (Version Control)",
+    "authors:publish_direct": "Author profiles go live immediately",
+    "jury:vote_weighted": "Cast +5 weighted vote (Trusted users)",
+    
+    # --- LEVEL 5: CURATION & ENFORCEMENT ---
+    "jury:override": "Instant Approve/Reject power (Curator override)",
+    "collections:manage_any": "Curate any collection",
+    "users:ban": "Ban malicious users",
+    "content:takedown": "Hard removal (DMCA/Illegal content)",
+    
+    # --- ADMIN ---
+    "system:access": "Access internal dashboards"
+}
+```
+
+### ROLE_SCOPE
+
+```python
+ROLE_SCOPES = {
+    # The "Blacklisted" - Read only, no interaction.
+    "blacklisted": [
+        "books:read"
+    ],
+    
+    # The "Newbie" - Can submit drafts to pending queue.
+    # Default role for new users (Trust Score starts at 0).
+    "user": [
+        "books:read", 
+        "reviews:create", 
+        "books:draft", 
+        "books:update_own", 
+        "books:delete_own",
+        "authors:draft",
+        "authors:update_own",
+        "authors:delete_own",
+        "collections:create",
+        "collections:update_own",
+        "collections:delete_own",
+        "reports:create"
+    ],
+
+    # The "Citizen" - Jury duty + wiki editing power.
+    # Requirement: Trust Score >= 10.
+    "contributor": [
+        # Inherits User
+        "books:read", "reviews:create", "books:draft", 
+        "books:update_own", "books:delete_own",
+        "authors:draft", "authors:update_own", "authors:delete_own",
+        "collections:create", "collections:update_own", "collections:delete_own",
+        "reports:create",
+        
+        # New Powers
+        "books:edit_public_meta",     # Wiki editing
+        "authors:edit_public_meta",   # Wiki editing for authors
+        "jury:view",                  # Access review queue
+        "jury:vote"                   # Vote weight = +1
+    ],
+
+    # The "Veteran" - Trusted fast-track.
+    # Requirement: Trust Score >= 50 AND Reputation >= 80%.
+    "trusted": [
+        # Inherits Contributor
+        "books:read", "reviews:create", "books:draft", 
+        "books:update_own", "books:delete_own",
+        "authors:draft", "authors:update_own", "authors:delete_own",
+        "collections:create", "collections:update_own", "collections:delete_own",
+        "reports:create",
+        "books:edit_public_meta", "authors:edit_public_meta",
+        "jury:view", "jury:vote",
+        
+        # New Powers
+        "books:publish_direct",       # Bypass queue
+        "books:replace_file",         # Fix broken files
+        "authors:publish_direct",     # Authors bypass queue
+        "jury:vote_weighted"          # Vote weight = +5
+    ],
+
+    # The "Sheriff" - Instant justice powers.
+    # Requirement: Trust Score >= 80 AND Reputation >= 90%.
+    "curator": [
+        # Inherits Trusted
+        "books:read", "reviews:create", "books:draft", 
+        "books:update_own", "books:delete_own",
+        "authors:draft", "authors:update_own", "authors:delete_own",
+        "collections:create", "collections:update_own", "collections:delete_own",
+        "reports:create",
+        "books:edit_public_meta", "authors:edit_public_meta",
+        "jury:view", "jury:vote",
+        "books:publish_direct", "books:replace_file", "authors:publish_direct",
+        "jury:vote_weighted",
+        
+        # New Powers
+        "jury:override",              # Instant approve/reject
+        "collections:manage_any",     # Curate featured collections
+        "users:ban",                  # Ban trolls
+        "content:takedown"            # DMCA/illegal removal
+    ],
+    
+    # The "Owner" - Full system access.
+    "admin": list(SCOPES.keys())  # All scopes
+}
+```
+
 ### Reputation Formula
 
 ```python

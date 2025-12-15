@@ -21,7 +21,7 @@ from app.schemas.trust import (
 from app.services.trust import adjust_trust_score, get_trust_history
 from app.rbac import calculate_user_roles
 
-router = APIRouter(prefix='/user', tags=["user services"])
+router = APIRouter(prefix="/user", tags=["user services"])
 
 
 @router.post("/admin/users/{user_id}/trust/adjust", response_model=TrustResponse)
@@ -35,16 +35,16 @@ async def adjust_user_trust(
 ):
     """
     Adjust a user's trust score (admin/service only).
-    
+
     This endpoint is used by Library Service to adjust trust scores based on:
     - Content submission outcomes (book/author approved/rejected)
     - Review helpfulness ratings
     - Social engagement (follows, subscriptions)
-    
+
     Role changes (upgrades) are delayed by 15 minutes with double-check.
     Downgrades are applied immediately.
     Auto-blacklist occurs at trust_score = 0.
-    
+
     Requires: X-Service-Token header or admin authentication
     Rate limited: 10 calls per hour per user_id
     """
@@ -59,9 +59,9 @@ async def adjust_user_trust(
     if not allowed:
         raise HTTPException(
             status_code=429,
-            detail=f"Rate limit exceeded for user {user_id}. Try again later."
+            detail=f"Rate limit exceeded for user {user_id}. Try again later.",
         )
-    
+
     try:
         user = await adjust_trust_score(
             user_id=user_id,
@@ -73,7 +73,7 @@ async def adjust_user_trust(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    
+
     return TrustResponse(
         user_id=user.id,
         trust_score=user.trust_score,
@@ -93,28 +93,27 @@ async def get_user_trust(
 ):
     """
     Get a user's trust score and reputation (own or admin only).
-    
+
     Returns current trust_score, reputation_percentage, roles, and any
     pending role upgrade information.
-    
+
     Regular users can only view their own trust information.
     Admins can view any user's trust information.
     """
     # Check permissions: own trust or admin
     if current_user.id != user_id and not current_user.is_admin:
         raise HTTPException(
-            status_code=403,
-            detail="You can only view your own trust information"
+            status_code=403, detail="You can only view your own trust information"
         )
-    
+
     # Load user
     stmt = select(User).where(User.id == user_id)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
-    
+
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     return TrustResponse(
         user_id=user.id,
         trust_score=user.trust_score,
@@ -136,29 +135,28 @@ async def get_user_trust_history(
 ):
     """
     Get paginated trust history for a user (admin only).
-    
+
     Returns all trust score adjustments with source, reason, and timestamp.
     Useful for auditing and understanding how a user's trust evolved.
-    
+
     Requires: Admin authentication
     """
     if not current_user.is_admin:
         raise HTTPException(
-            status_code=403,
-            detail="Only administrators can view trust history"
+            status_code=403, detail="Only administrators can view trust history"
         )
-    
+
     # Verify user exists
     stmt = select(User).where(User.id == user_id)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
-    
+
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     # Get history
     history, total = await get_trust_history(db, user_id, limit, offset)
-    
+
     return TrustHistoryResponse(
         user_id=user_id,
         items=[

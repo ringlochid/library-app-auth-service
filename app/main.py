@@ -79,11 +79,11 @@ async def readiness_check():
         await redis.ping()
     except Exception as e:
         errors.append(f"Redis: {str(e)}")
-    
+
     if errors:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content={"status": "unhealthy", "errors": errors}
+            content={"status": "unhealthy", "errors": errors},
         )
-    
+
     return {"status": "ready", "database": "ok", "redis": "ok"}

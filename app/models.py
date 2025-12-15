@@ -44,7 +44,7 @@ class User(Base):
     avatar_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     bio: Mapped[str | None] = mapped_column(String(500), nullable=True)
     preferences: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    
+
     # roles and permissions
     roles: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[\"user\"]'::jsonb")
@@ -58,7 +58,7 @@ class User(Base):
     scopes: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
-    
+
     # Phase 2: Trust & reputation tracking
     successful_submissions: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
@@ -66,10 +66,8 @@ class User(Base):
     total_submissions: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
     )
-    pending_role_upgrade: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True
-    )
-    
+    pending_role_upgrade: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
     # Phase 4: Report & locking (prep for future)
     is_locked: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("FALSE")
@@ -113,7 +111,10 @@ class User(Base):
         CheckConstraint("jsonb_typeof(scopes) = 'array'", name="ck_users_scopes_array"),
         CheckConstraint("jsonb_typeof(roles) = 'array'", name="ck_users_roles_array"),
         CheckConstraint("trust_score >= 0", name="ck_users_trust_score_positive"),
-        CheckConstraint("reputation_percentage >= 0 AND reputation_percentage <= 100", name="ck_users_reputation_range"),
+        CheckConstraint(
+            "reputation_percentage >= 0 AND reputation_percentage <= 100",
+            name="ck_users_reputation_range",
+        ),
         Index("ix_users_email_lower", func.lower(email), unique=True),
         Index("ix_users_name_lower", func.lower(name), unique=True),
         Index("ix_users_trust_score", trust_score),
@@ -141,7 +142,9 @@ class RefreshToken(Base):
     user_agent: Mapped[str | None] = mapped_column(String(255))
     ip_address: Mapped[str | None] = mapped_column(String(45))
     # Phase 5: Session tracking
-    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     last_used_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="refresh_tokens")
@@ -192,8 +195,9 @@ class VerificationToken(Base):
 
 class TrustHistory(Base):
     """Track all trust score changes for audit and reputation calculation."""
+
     __tablename__ = "trust_history"
-    
+
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("gen_random_uuid()")
     )
@@ -212,7 +216,7 @@ class TrustHistory(Base):
         nullable=False,
         server_default=text("CURRENT_TIMESTAMP"),
     )
-    
+
     __table_args__ = (
         Index("ix_trust_history_user_created", user_id, created_at.desc()),
     )
@@ -221,26 +225,27 @@ class TrustHistory(Base):
 class ContentReport(Base):
     """
     Track content abuse reports for jury oversight.
-    
+
     Reports target specific edit actions (create/update/delete/publish) from Library Service.
     Only approved/pending reports count toward auto-lock threshold (10+ distinct trusted reporters).
     """
+
     __tablename__ = "content_reports"
-    
+
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("gen_random_uuid()")
     )
     reporter_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    
+
     # JSONB target points to specific edit in Library Service
     # Structure: {content_type, content_id, edit_id, action, actor_id}
     target: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    
+
     reason: Mapped[str] = mapped_column(String(500), nullable=False)
     category: Mapped[str] = mapped_column(String(50), nullable=False)
-    
+
     # Admin review
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default=text("'pending'")
@@ -252,17 +257,17 @@ class ContentReport(Base):
         DateTime(timezone=True), nullable=True
     )
     review_notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         server_default=text("CURRENT_TIMESTAMP"),
     )
-    
+
     # Relationships
     reporter: Mapped["User"] = relationship(foreign_keys=[reporter_id])
     reviewer: Mapped["User"] = relationship(foreign_keys=[reviewed_by])
-    
+
     __table_args__ = (
         # Index on actor_id in JSONB for auto-lock queries
         Index("ix_content_reports_target_actor", text("(target->>'actor_id')")),

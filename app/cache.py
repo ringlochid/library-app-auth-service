@@ -116,7 +116,9 @@ async def create_avatar_claim(
         "exp_ts": expires_at_ts,
         "used": False,
     }
-    await r.set(make_avatar_claim_key(user_id, upload_id), json.dumps(payload), ex=ttl_seconds)
+    await r.set(
+        make_avatar_claim_key(user_id, upload_id), json.dumps(payload), ex=ttl_seconds
+    )
 
 
 async def get_avatar_claim(

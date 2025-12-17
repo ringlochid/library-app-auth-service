@@ -222,6 +222,8 @@ async def get_current_user_with_access_token(
     r: Redis = Depends(get_redis),
 ) -> User:
     payload = decode_access_token(token)
+    token_roles = payload.get("roles") or []
+    token_scopes = payload.get("scopes") or []
     bl_key = make_access_blacklist_key(payload["jti"])
     is_bl = await check_access_in_bl(bl_key, r)
     if is_bl:
@@ -306,8 +308,8 @@ async def get_current_user_with_access_token(
                 hashed_password="",
                 is_active=cached["is_active"],
                 is_admin=cached["is_admin"],
-                roles=cached.get("roles", []),
-                scopes=cached.get("scopes", []),
+                roles=token_roles or cached.get("roles", []),
+                scopes=token_scopes or cached.get("scopes", []),
                 trust_score=cached.get("trust_score", 0),
                 reputation_percentage=cached.get("reputation_percentage", 0.0),
                 is_blacklisted=cached.get("is_blacklisted", False),
@@ -347,6 +349,9 @@ async def get_current_user_with_access_token(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User is locked",
         )
+    # Align persisted roles/scopes with token payload for consistency
+    user.roles = token_roles or user.roles
+    user.scopes = token_scopes or user.scopes
 
     await cache_user_info(
         user_id,
@@ -356,8 +361,8 @@ async def get_current_user_with_access_token(
             "email": user.email,
             "is_active": user.is_active,
             "is_admin": user.is_admin,
-            "roles": user.roles,
-            "scopes": user.scopes,
+            "roles": token_roles or user.roles,
+            "scopes": token_scopes or user.scopes,
             "trust_score": user.trust_score,
             "reputation_percentage": user.reputation_percentage,
             "is_blacklisted": user.is_blacklisted,
@@ -372,6 +377,7 @@ async def get_current_user_with_access_token(
         r,
     )
 
+    # Return user with roles/scopes sourced from the token
     return user
 
 

@@ -18,6 +18,7 @@ from app.cache import (
     make_access_blacklist_key,
     cache_access_to_bl,
 )
+from app.redis_client import init_redis
 
 async def check_auto_lock(
     db: AsyncSession,
@@ -40,6 +41,7 @@ async def check_auto_lock(
     Returns:
         True if user was locked, False otherwise
     """
+    r = r or await init_redis()
     # Count distinct trusted reporters with approved/pending reports
     stmt = (
         select(func.count(func.distinct(ContentReport.reporter_id)))
@@ -115,6 +117,7 @@ async def unlock_user(
         user_id: UUID of user to unlock
         admin_id: UUID of admin performing the unlock
     """
+    r = r or await init_redis()
     user = await db.get(User, user_id)
     if not user:
         raise ValueError("User not found")

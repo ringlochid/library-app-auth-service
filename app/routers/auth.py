@@ -176,6 +176,9 @@ async def user_login(
     # Calculate roles and scopes for RBAC
     roles = calculate_user_roles(curr_user)
     scopes = get_scopes_for_roles(roles)
+    # Persist roles/scopes for downstream statistics/consistency
+    curr_user.roles = roles
+    curr_user.scopes = scopes
     
     access_token, ac_jti, ac_exp = create_access_token(
         curr_user.id, 
@@ -310,6 +313,9 @@ async def reissue_access_token(
     # Calculate roles and scopes for RBAC
     roles = calculate_user_roles(user)
     scopes = get_scopes_for_roles(roles)
+    # Persist roles/scopes for downstream statistics/consistency
+    user.roles = roles
+    user.scopes = scopes
     
     new_access_token, ac_jti, ac_exp = create_access_token(
         user.id, 

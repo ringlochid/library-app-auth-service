@@ -1,4 +1,3 @@
-from datetime import datetime, timezone, timedelta
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,11 +6,12 @@ from redis.asyncio import Redis
 
 from app.database import get_db
 from app.redis_client import get_redis
-from app.cache import token_bucket_allow, make_rate_limit_key
+from app.cache import cache_user_profile, get_cached_user_existence, cache_user_existence, get_cached_user_profile, token_bucket_allow, make_rate_limit_key
 from app.settings import settings
-from app.models import User, TrustHistory
+from app.models import User
 from app.security import get_current_user_with_access_token
 from app.dependencies.service_auth import verify_service_token
+from app.schemas.user import UserExistsResponse, UserProfile, UserRead
 from app.schemas.trust import (
     TrustAdjustRequest,
     TrustResponse,
@@ -22,6 +22,17 @@ from app.services.trust import adjust_trust_score, get_trust_history
 from app.rbac import calculate_user_roles
 
 router = APIRouter(prefix="/user", tags=["user services"])
+
+@router.get("/me", response_model=UserRead)
+async def who_am_i(user: User = Depends(get_current_user_with_access_token)):
+    return user
+
+
+@router.get("/admin/me", response_model=UserRead)
+async def who_am_i_admin(user: User = Depends(get_current_user_with_access_token)):
+    if not user.is_admin:
+        raise HTTPException(status_code=401, detail="Admins only")
+    return user
 
 
 @router.post("/admin/users/{user_id}/trust/adjust", response_model=TrustResponse)
@@ -175,3 +186,79 @@ async def get_user_trust_history(
         limit=limit,
         offset=offset,
     )
+
+@router.get("/check/{user_id}", response_model=UserExistsResponse)
+@router.get("/check", response_model=UserExistsResponse) 
+async def check_user_existence(
+    user_id: uuid.UUID | None = None,
+    name : str | None = Query(None, description="Optional name parameter for future use"),
+    db: AsyncSession = Depends(get_db),
+    r : Redis = Depends(get_redis),
+    _x_service_auth: None = Depends(verify_service_token),
+):
+    if not user_id and not name:
+        raise HTTPException(status_code=400, detail="Either user_id or name must be provided")
+    rl_key = make_rate_limit_key("user_check", str(user_id) if user_id else name)
+    allowed, _ = await token_bucket_allow(
+        rl_key,
+        capacity=settings.RATE_LIMIT_USER_CHECK_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_USER_CHECK_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_USER_CHECK_REFILL_PERIOD_SECONDS,
+        r=r,
+    )
+    cached = await get_cached_user_existence(user_id, name, r)
+    if cached is not None:
+        return cached
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Try again later.",
+        )
+    stmt = select(User)
+    if user_id:
+        stmt = stmt.where(User.id == user_id)
+    elif name:
+        stmt = stmt.where(User.name == name)
+    raw = await db.execute(stmt)
+    user = raw.scalar_one_or_none()
+    if not user:
+        return UserExistsResponse(exists=False)
+    
+    data = {
+        "exists": True,
+        "user_id": user.id,
+        "is_verified": user.email_verified_at is not None,
+        "is_active": user.is_active,
+        "is_locked": user.is_locked,
+        "is_blacklisted": user.is_blacklisted,
+    }
+    
+    await cache_user_existence(user_id, name, data, r)
+    return data
+
+# public endpoint to show user profile
+@router.get("/profile/{user_id}", response_model=UserProfile)
+@router.get("/profile", response_model=UserProfile)
+async def get_user_profile(
+    user_id: uuid.UUID | None = None,
+    name : str | None = Query(None, description="Optional name parameter for future use"),
+    db: AsyncSession = Depends(get_db),
+    r : Redis = Depends(get_redis),
+):
+    if not user_id and not name:
+        raise HTTPException(status_code=400, detail="Either user_id or name must be provided")
+    cached = await get_cached_user_profile(user_id, name, r)
+    if cached is not None:
+        return cached
+    stmt = select(User)
+    if user_id:
+        stmt = stmt.where(User.id == user_id)
+    elif name:
+        stmt = stmt.where(User.name == name)
+    raw = await db.execute(stmt)
+    user = raw.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    data = UserProfile(user, from_attributes=True).model_dump()
+    await cache_user_profile(user_id, name, data, r)
+    return data

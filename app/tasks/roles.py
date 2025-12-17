@@ -9,10 +9,7 @@ from app.celery_app import app
 from app.database import AsyncSessionLocal
 from app.models import User
 from app.rbac import calculate_user_roles
-
-
-def _now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+from app.cache import delete_cached_user_info, delete_cached_user_existence, delete_cached_user_profile
 
 
 @app.task(name="app.tasks.roles.process_role_upgrade", bind=True, max_retries=3)
@@ -86,6 +83,11 @@ def process_role_upgrade(self, user_id_str: str, target_roles: list[str]):
             user.pending_role_upgrade = None
             await db.commit()
             await db.refresh(user)
+            await delete_cached_user_info(user.id, None)
+            await delete_cached_user_existence(user.id, None, None)
+            await delete_cached_user_existence(None, user.name, None)
+            await delete_cached_user_profile(user.id, None, None)
+            await delete_cached_user_profile(None, user.name, None)
             
             return {
                 "status": "upgrade_applied",

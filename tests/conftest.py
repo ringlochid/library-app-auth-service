@@ -95,8 +95,9 @@ async def db_session():
         poolclass=NullPool
     )
     
-    # Create all tables
+    # Reset schema for isolation
     async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     
     # Create session

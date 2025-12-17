@@ -9,6 +9,7 @@ import uuid
 
 from app.database import get_db
 from app.models import ContentReport, User
+from app.redis_client import get_redis
 from app.schemas.report import (
     ReportSubmitRequest,
     ReportResponse,
@@ -19,6 +20,7 @@ from app.schemas.report import (
 )
 from app.dependencies.rbac import require_roles
 from app.services.reports import check_auto_lock, unlock_user
+from app.cache import Redis
 
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -29,6 +31,7 @@ async def submit_report(
     request: ReportSubmitRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(["contributor", "curator", "admin"])),
+    r: Redis = Depends(get_redis),
 ) -> ReportResponse:
     """
     Submit a content report (contributor+ only).
@@ -75,7 +78,7 @@ async def submit_report(
     await db.refresh(report)
 
     # Check auto-lock threshold
-    await check_auto_lock(db, request.target.actor_id)
+    await check_auto_lock(db, request.target.actor_id, r=r)
 
     return report
 
@@ -134,6 +137,7 @@ async def review_report(
     request: ReportReviewRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(["admin"])),
+    r: Redis = Depends(get_redis),
 ) -> ReportResponse:
     """
     Review a report: approve or reject (admin only).
@@ -166,7 +170,7 @@ async def review_report(
     # Check auto-lock if approved
     if request.action == "approve":
         actor_id = uuid.UUID(report.target["actor_id"])
-        await check_auto_lock(db, actor_id, admin_id=current_user.id)
+        await check_auto_lock(db, actor_id, admin_id=current_user.id, r=r)
 
     return report
 
@@ -176,6 +180,7 @@ async def unlock_user_endpoint(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(["admin"])),
+    r: Redis = Depends(get_redis),
 ) -> UnlockUserResponse:
     """
     Unlock a user (admin only).
@@ -184,7 +189,7 @@ async def unlock_user_endpoint(
     Creates audit trail in trust_history.
     """
     try:
-        await unlock_user(db, user_id, current_user.id)
+        await unlock_user(db, user_id, current_user.id, r)
 
         # Get updated user
         user = await db.get(User, user_id)

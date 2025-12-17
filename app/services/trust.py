@@ -12,11 +12,13 @@ from app.models import User, TrustHistory
 from app.rbac import calculate_user_roles
 from app.settings import settings
 from app.cache import (
+    delete_cached_user_existence,
+    delete_cached_user_profile,
     get_access,
     make_access_key,
     make_access_blacklist_key,
     cache_access_to_bl,
-    delete_cached_user,
+    delete_cached_user_info,
 )
 
 
@@ -150,7 +152,11 @@ async def adjust_trust_score(
     
     # Always invalidate user cache after trust adjustment
     if r is not None:
-        await delete_cached_user(user_id, r)
+        await delete_cached_user_info(user_id, r)
+        await delete_cached_user_existence(user_id, None, r)
+        await delete_cached_user_existence(None, user.name, r)
+        await delete_cached_user_profile(user_id, None, r)
+        await delete_cached_user_profile(None, user.name, r)
     
     return user
 

@@ -41,12 +41,14 @@ from redis.asyncio import Redis
 from app.redis_client import get_redis
 from app.cache import (
     create_avatar_claim,
+    delete_cached_user_existence,
+    delete_cached_user_profile,
     make_access_blacklist_key,
     make_access_key,
     cache_access,
     get_access,
     cache_access_to_bl,
-    delete_cached_user,
+    delete_cached_user_info,
     token_bucket_allow,
     make_rate_limit_key,
     consume_avatar_claim,
@@ -224,7 +226,7 @@ async def user_login(
 
     await db.commit()
     if user_mutated:
-        await delete_cached_user(curr_user.id, r)
+        await delete_cached_user_info(curr_user.id, r)
     return {"access_token": access_token, "token_type": "bearer"}
 
 
@@ -431,10 +433,47 @@ async def send_email_verification(
     )
     db.add(new_vt)
     await db.commit()
-    # test
     verify_url = f"{settings.EMAIL_VERIFY_BASE_URL}{verification_token}"
-    body = f"your verification link is : {verify_url}"
-    send_verify_email.delay(to=email, subject="verification", body=body)
+    
+    # Create a formatted HTML body for the verification email
+    body = f"""
+    <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 40px; }}
+                .container {{ max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 20px; border-radius: 5px; }}
+                .header {{ font-size: 24px; font-weight: bold; margin-bottom: 20px; text-align: center; }}
+                .content {{ font-size: 16px; line-height: 1.5; }}
+                .button {{
+                    display: inline-block;
+                    padding: 10px 20px;
+                    margin: 20px 0;
+                    background-color: #007bff;
+                    color: #ffffff;
+                    text-decoration: none;
+                    border-radius: 5px;
+                }}
+                .footer {{ font-size: 12px; color: #888; margin-top: 20px; text-align: center; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">Verify Your Email Address</div>
+                <div class="content">
+                    <p>Thanks for registering! Please click the button below to verify your email address.</p>
+                    <a href="{verify_url}" class="button">Verify Email</a>
+                    <p>If you cannot click the button, please copy and paste this link into your browser:</p>
+                    <p><a href="{verify_url}">{verify_url}</a></p>
+                    <p>This link will expire in {settings.EMAIL_VERIFY_EXPIRE_MINUTES} minutes.</p>
+                </div>
+                <div class="footer">
+                    If you did not request this email, please ignore it.
+                </div>
+            </div>
+        </body>
+    </html>
+    """
+    send_verify_email.delay(to=email, subject="Verify Your Email", body=body)
 
 
 @router.get("/verify-email", status_code=204)
@@ -473,7 +512,11 @@ async def commit_email_verification(
     
     if user:
         await db.refresh(user)
-        await delete_cached_user(user.id, r)
+        await delete_cached_user_info(user.id, r)
+        await delete_cached_user_existence(user.id, None, r)
+        await delete_cached_user_existence(None, user.name, r)
+        await delete_cached_user_profile(user.id, None, r)
+        await delete_cached_user_profile(None, user.name, r)
 
 
 @router.get("/sessions", response_model=SessionListResponse)
@@ -524,19 +567,6 @@ async def list_sessions(
         sessions=sessions,
         total=len(sessions)
     )
-
-
-@router.get("/me", response_model=UserRead)
-async def who_am_i(user: User = Depends(get_current_user_with_access_token)):
-    return user
-
-
-@router.get("/admin-only/me", response_model=UserRead)
-async def who_am_i_admin(user: User = Depends(get_current_user_with_access_token)):
-    if not user.is_admin:
-        raise HTTPException(status_code=401, detail="Admins only")
-    return user
-
 
 @router.post("/avatar/upload", response_model=AvatarUploadResponse)
 async def create_avatar_upload(

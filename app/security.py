@@ -14,13 +14,14 @@ from redis.asyncio import Redis
 
 from app.settings import settings
 from app.database import get_db
-from app.models import User
+from app.models import User, RefreshToken
 from app.redis_client import get_redis
 from app.cache import (
     check_access_in_bl,
     make_access_blacklist_key,
-    get_cached_user,
-    cache_user,
+    get_cached_user_info,
+    cache_user_info,
+    delete_cached_user_info,
 )
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -230,37 +231,92 @@ async def get_current_user_with_access_token(
         )
     user_id = uuid.UUID(payload["sub"])
 
-    cached = await get_cached_user(user_id, r)
+    cached = await get_cached_user_info(user_id, r)
     if cached is not None:
-        return User(
-            id=user_id,
-            name=cached["name"],
-            email=cached["email"],
-            hashed_password="",
-            is_active=cached["is_active"],
-            is_admin=cached["is_admin"],
-            scopes=cached.get("scopes", []),
-            created_at=(
+        required_keys = [
+            "is_active",
+            "email_verified_at",
+            "expires_at",
+            "roles",
+            "scopes",
+            "trust_score",
+            "reputation_percentage",
+            "is_blacklisted",
+            "is_locked",
+        ]
+        if any(key not in cached for key in required_keys):
+            await delete_cached_user_info(user_id, r)
+        else:
+            created_at = (
                 datetime.fromisoformat(cached["created_at"])
                 if cached.get("created_at")
                 else None
-            ),
-            updated_at=(
+            )
+            updated_at = (
                 datetime.fromisoformat(cached["updated_at"])
                 if cached.get("updated_at")
                 else None
-            ),
-            email_verified_at=(
+            )
+            email_verified_at = (
                 datetime.fromisoformat(cached["email_verified_at"])
                 if cached.get("email_verified_at")
                 else None
-            ),
-            expires_at=(
+            )
+            expires_at = (
                 datetime.fromisoformat(cached["expires_at"])
                 if cached.get("expires_at")
                 else None
-            ),
-        )
+            )
+
+            if not cached.get("is_active"):
+                await delete_cached_user_info(user_id, r)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="User not found or inactive",
+                )
+            if expires_at and expires_at <= _now_utc():
+                await delete_cached_user_info(user_id, r)
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Account expired",
+                )
+            if email_verified_at is None:
+                await delete_cached_user_info(user_id, r)
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Email not verified",
+                )
+            if cached.get("is_blacklisted"):
+                await delete_cached_user_info(user_id, r)
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="User is blacklisted",
+                )
+            if cached.get("is_locked"):
+                await delete_cached_user_info(user_id, r)
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="User is locked",
+                )
+
+            return User(
+                id=user_id,
+                name=cached["name"],
+                email=cached["email"],
+                hashed_password="",
+                is_active=cached["is_active"],
+                is_admin=cached["is_admin"],
+                roles=cached.get("roles", []),
+                scopes=cached.get("scopes", []),
+                trust_score=cached.get("trust_score", 0),
+                reputation_percentage=cached.get("reputation_percentage", 0.0),
+                is_blacklisted=cached.get("is_blacklisted", False),
+                is_locked=cached.get("is_locked", False),
+                created_at=created_at,
+                updated_at=updated_at,
+                email_verified_at=email_verified_at,
+                expires_at=expires_at,
+            )
 
     stat = select(User).where(User.id == user_id)
     result = await db.execute(stat)
@@ -275,14 +331,24 @@ async def get_current_user_with_access_token(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account expired",
-        )
+    )
     if user.email_verified_at is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Email not verified",
         )
+    if user.is_blacklisted:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User is blacklisted",
+        )
+    if user.is_locked:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User is locked",
+        )
 
-    await cache_user(
+    await cache_user_info(
         user_id,
         {
             "id": str(user_id),
@@ -290,7 +356,12 @@ async def get_current_user_with_access_token(
             "email": user.email,
             "is_active": user.is_active,
             "is_admin": user.is_admin,
+            "roles": user.roles,
             "scopes": user.scopes,
+            "trust_score": user.trust_score,
+            "reputation_percentage": user.reputation_percentage,
+            "is_blacklisted": user.is_blacklisted,
+            "is_locked": user.is_locked,
             "created_at": user.created_at.isoformat() if user.created_at else "",
             "updated_at": user.updated_at.isoformat() if user.updated_at else "",
             "email_verified_at": (
@@ -312,6 +383,15 @@ async def get_current_user_with_refresh_token(
         raise HTTPException(status_code=400, detail="Token not found")
 
     payload = decode_refresh_token(refresh_token)
+    jti = payload["jti"]
+    query = select(RefreshToken).where(RefreshToken.jti == jti, RefreshToken.revoked == False)
+    raw = await db.execute(query)
+    token_obj = raw.scalar_one_or_none()
+    if token_obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
     user_id = uuid.UUID(payload["sub"])
 
     stmt = (

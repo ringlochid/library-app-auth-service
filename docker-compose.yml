@@ -35,8 +35,8 @@ services:
     container_name: clamav
     environment:
       - CLAMD_STARTUP_TIMEOUT=120000
-    ports:
-      - "3310:3310"
+    # ports:
+    #   - "3310:3310"
     volumes:
       - clamav-db:/var/lib/clamav
 

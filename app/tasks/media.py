@@ -13,7 +13,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from botocore.exceptions import ClientError
 
 from app.celery_app import app
-from app.cache import delete_cached_user
+from app.cache import delete_cached_user_info, delete_cached_user_profile
 from app.database import AsyncSessionLocal
 from app.models import User
 from app.redis_client import init_redis
@@ -215,7 +215,8 @@ async def _persist_avatar_and_bust_cache(
     old_key = await _update_user_avatar(user_id, final_key)
     try:
         redis = await init_redis()
-        await delete_cached_user(user_id, redis)
+        await delete_cached_user_info(user_id, redis)
+        await delete_cached_user_profile(user_id, None, redis)
     except Exception:
         pass
     return old_key

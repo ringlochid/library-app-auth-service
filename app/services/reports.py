@@ -8,11 +8,21 @@ import uuid
 
 from app.models import ContentReport, User, TrustHistory
 from app.rbac import calculate_user_roles
-
+from app.cache import (
+    Redis,
+    delete_cached_user_existence,
+    delete_cached_user_profile,
+    delete_cached_user_info,
+    get_access,
+    make_access_key,
+    make_access_blacklist_key,
+    cache_access_to_bl,
+)
 
 async def check_auto_lock(
     db: AsyncSession,
     actor_id: uuid.UUID,
+    r: Redis | None,
     *,
     admin_id: uuid.UUID | None = None
 ) -> bool:
@@ -65,6 +75,24 @@ async def check_auto_lock(
             user.roles = calculate_user_roles(user)
             
             await db.commit()
+            if r is not None:
+                await delete_cached_user_info(user.id, r)
+                await delete_cached_user_existence(user.id, None, r)
+                await delete_cached_user_existence(None, user.name, r)
+                await delete_cached_user_profile(user.id, None, r)
+                await delete_cached_user_profile(None, user.name, r)
+
+            # Blacklist current access token so scope/role changes take effect immediately
+            if r is not None:
+                cached_access = await get_access(make_access_key(user.id), r)
+                if cached_access:
+                    jti = cached_access.get("jti")
+                    exp_ts = cached_access.get("exp")
+                    if jti and exp_ts:
+                        now_ts = int(datetime.now(timezone.utc).timestamp())
+                        ttl = max(int(exp_ts - now_ts), 1)
+                        bl_key = make_access_blacklist_key(jti)
+                        await cache_access_to_bl(bl_key, r, ttl)
             return True
     
     return False
@@ -73,7 +101,8 @@ async def check_auto_lock(
 async def unlock_user(
     db: AsyncSession,
     user_id: uuid.UUID,
-    admin_id: uuid.UUID
+    admin_id: uuid.UUID,
+    r: Redis | None = None,
 ) -> None:
     """
     Unlock a user (admin only).
@@ -111,3 +140,20 @@ async def unlock_user(
     user.roles = calculate_user_roles(user)
     
     await db.commit()
+    if r is not None:
+        await delete_cached_user_info(user.id, r)
+        await delete_cached_user_existence(user.id, None, r)
+        await delete_cached_user_existence(None, user.name, r)
+        await delete_cached_user_profile(user.id, None, r)
+        await delete_cached_user_profile(None, user.name, r)
+
+        # Blacklist current access token so clients refresh scopes/roles after unlock
+        cached_access = await get_access(make_access_key(user.id), r)
+        if cached_access:
+            jti = cached_access.get("jti")
+            exp_ts = cached_access.get("exp")
+            if jti and exp_ts:
+                now_ts = int(datetime.now(timezone.utc).timestamp())
+                ttl = max(int(exp_ts - now_ts), 1)
+                bl_key = make_access_blacklist_key(jti)
+                await cache_access_to_bl(bl_key, r, ttl)

@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     RATE_LIMIT_TRUST_ADJUST_CAPACITY: int = 10
     RATE_LIMIT_TRUST_ADJUST_REFILL_TOKENS: int = 10
     RATE_LIMIT_TRUST_ADJUST_REFILL_PERIOD_SECONDS: int = 3600
+    RATE_LIMIT_USER_CHECK_CAPACITY: int = 60
+    RATE_LIMIT_USER_CHECK_REFILL_TOKENS: int = 60
+    RATE_LIMIT_USER_CHECK_REFILL_PERIOD_SECONDS: int = 60
     EMAIL_VERIFY_BASE_URL: str = "https://localhost:8000/verify-email?token="
     JWT_PRIVATE_KEY_PATH: str = "keys/private_key.pem"
     JWT_PUBLIC_KEY_PATH: str = "keys/public_key.pem"
@@ -55,12 +58,6 @@ class Settings(BaseSettings):
     JWT_AUDIENCE: str = "backend-services"
     COOKIE_SECURE: bool = False
     MAIL_FROM: str = "no-reply@example.com"
-    MAIL_HOST: str | None = None
-    MAIL_PORT: int = 587
-    MAIL_USER: str | None = None
-    MAIL_PASSWORD: str | None = None
-    MAIL_TO: str | None = None
-    MAIL_TEST_TO: str | None = None
     CELERY_BROKER_URL: str | None = None
     CELERY_RESULT_BACKEND: str | None = None
     CELERY_TASK_DEFAULT_QUEUE: str = "default"
@@ -87,6 +84,7 @@ class Settings(BaseSettings):
     # Phase 2: Trust & roles
     SERVICE_API_KEY: str | None = None  # Shared secret for service-to-service auth
     ROLE_UPGRADE_DELAY_SECONDS: int = 900  # 15 minutes default
+    AWS_REGION: str | None = "ap-southeast-2"
 
 
 settings = Settings()

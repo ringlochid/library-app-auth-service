@@ -15,6 +15,104 @@ DEFAULT_TTL = settings.CACHE_DEFAULT_TTL_SECONDS
 def make_user_info_key(user_id: uuid.UUID) -> str:
     return f"user:{user_id}:info"
 
+def make_user_exist_key(user_id: uuid.UUID | None, name: str | None) -> str:
+    if user_id:
+        return f"user:exists:id:{user_id}"
+    elif name:
+        return f"user:exists:name:{name}"
+    else:
+        raise ValueError("Either user_id or name must be provided")
+def make_user_profile_key(user_id: uuid.UUID | None, name: str | None) -> str:
+    if user_id:
+        return f"user:profile:id:{user_id}"
+    elif name:
+        return f"user:profile:name:{name}"
+    else:
+        raise ValueError("Either user_id or name must be provided")
+
+async def cache_user_info(
+    user_id: uuid.UUID, user_data: dict, r: Redis | None = None, ttl: int = DEFAULT_TTL
+) -> None:
+    r = r or await init_redis()
+    payload = json.dumps(user_data, ensure_ascii=False)
+    await r.set(make_user_info_key(user_id), payload, ex=ttl)
+
+async def cache_user(
+    user_id: uuid.UUID, user_data: dict, r: Redis | None = None, ttl: int = DEFAULT_TTL
+) -> None:
+    """
+    Backwards-compatible helper used in tests to cache user data by id.
+    """
+    await cache_user_info(user_id, user_data, r, ttl)
+
+async def cache_user_existence(
+    user_id: uuid.UUID | None,
+    name: str | None,
+    data: dict,
+    r: Redis | None = None,
+    ttl: int = DEFAULT_TTL,
+) -> None:
+    r = r or await init_redis()
+    payload = json.dumps(data, ensure_ascii=False)
+    await r.set(make_user_exist_key(user_id, name), payload, ex=ttl)
+
+async def cache_user_profile(
+    user_id: uuid.UUID | None,
+    name: str | None,
+    data: dict,
+    r: Redis | None = None,
+    ttl: int = DEFAULT_TTL,
+) -> None:
+    r = r or await init_redis()
+    payload = json.dumps(data, ensure_ascii=False)
+    await r.set(make_user_profile_key(user_id, name), payload, ex=ttl)
+
+async def get_cached_user_info(user_id: uuid.UUID, r: Redis | None = None) -> dict | None:
+    r = r or await init_redis()
+    data = await r.get(make_user_info_key(user_id))
+    if not data:
+        return None
+    return json.loads(data)
+
+async def get_cached_user(user_id: uuid.UUID, r: Redis | None = None) -> dict | None:
+    """
+    Backwards-compatible helper used in tests to fetch cached user data by id.
+    """
+    return await get_cached_user_info(user_id, r)
+
+async def get_cached_user_existence(
+    user_id: uuid.UUID | None, name: str | None, r: Redis | None = None
+) -> dict | None:
+    r = r or await init_redis()
+    data = await r.get(make_user_exist_key(user_id, name))
+    if not data:
+        return None
+    return json.loads(data)
+
+async def get_cached_user_profile(
+    user_id: uuid.UUID | None, name: str | None, r: Redis | None = None
+) -> dict | None:
+    r = r or await init_redis()
+    data = await r.get(make_user_profile_key(user_id, name))
+    if not data:
+        return None
+    return json.loads(data)
+
+async def delete_cached_user_info(user_id: uuid.UUID, r: Redis | None = None) -> None:
+    r = r or await init_redis()
+    await r.delete(make_user_info_key(user_id))
+
+async def delete_cached_user_existence(
+    user_id: uuid.UUID | None, name: str | None, r: Redis | None = None
+) -> None:
+    r = r or await init_redis()
+    await r.delete(make_user_exist_key(user_id, name))
+
+async def delete_cached_user_profile(
+    user_id: uuid.UUID | None, name: str | None, r: Redis | None = None
+) -> None:
+    r = r or await init_redis()
+    await r.delete(make_user_profile_key(user_id, name))
 
 def make_access_key(user_id: uuid.UUID) -> str:
     return f"user:{user_id}:access"
@@ -22,35 +120,6 @@ def make_access_key(user_id: uuid.UUID) -> str:
 
 def make_access_blacklist_key(jti: str) -> str:
     return f"blacklist:access:{jti}"
-
-
-def make_avatar_claim_key(user_id: uuid.UUID, upload_id: uuid.UUID) -> str:
-    """
-    Redis key to track a short-lived avatar upload claim.
-    """
-    return f"avatar:claim:{user_id}:{upload_id}"
-
-
-async def cache_user(
-    user_id: uuid.UUID, user_data: dict, r: Redis | None = None, ttl: int = DEFAULT_TTL
-) -> None:
-    r = r or await init_redis()
-    payload = json.dumps(user_data, ensure_ascii=False)
-    await r.set(make_user_info_key(user_id), payload, ex=ttl)
-
-
-async def get_cached_user(user_id: uuid.UUID, r: Redis | None = None) -> dict | None:
-    r = r or await init_redis()
-    data = await r.get(make_user_info_key(user_id))
-    if not data:
-        return None
-    return json.loads(data)
-
-
-async def delete_cached_user(user_id: uuid.UUID, r: Redis | None = None) -> None:
-    r = r or await init_redis()
-    await r.delete(make_user_info_key(user_id))
-
 
 async def cache_access(
     key: str,
@@ -89,8 +158,11 @@ async def check_access_in_bl(key: str, r: Redis | None = None) -> bool:
     return await r.exists(key) == 1
 
 
-def make_rate_limit_key(prefix: str, identifier: str) -> str:
-    return f"rl:{prefix}:{identifier}"
+def make_avatar_claim_key(user_id: uuid.UUID, upload_id: uuid.UUID) -> str:
+    """
+    Redis key to track a short-lived avatar upload claim.
+    """
+    return f"avatar:claim:{user_id}:{upload_id}"
 
 
 async def create_avatar_claim(
@@ -155,6 +227,10 @@ async def consume_avatar_claim(
         return json.loads(val)
     except Exception:
         return None
+
+
+def make_rate_limit_key(prefix: str, identifier: str) -> str:
+    return f"rl:{prefix}:{identifier}"
 
 
 async def token_bucket_allow(

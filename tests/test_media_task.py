@@ -9,6 +9,7 @@ from sqlalchemy.pool import NullPool
 from botocore.exceptions import ClientError
 from moto import mock_aws
 from PIL import Image
+from unittest.mock import AsyncMock
 
 from app.models import Base, User
 from app.tasks.media import process_upload
@@ -24,11 +25,10 @@ def test_process_upload_promotes_and_updates_user(monkeypatch):
     async def fake_init_redis():
         return None
 
-    async def fake_delete_cached_user(user_id, r=None):
-        return None
 
     monkeypatch.setattr("app.tasks.media.init_redis", fake_init_redis)
-    monkeypatch.setattr("app.tasks.media.delete_cached_user", fake_delete_cached_user)
+    monkeypatch.setattr("app.cache.delete_cached_user_info", AsyncMock())
+    monkeypatch.setattr("app.cache.delete_cached_user_profile", AsyncMock())
     monkeypatch.setattr(settings, "CLAMAV_HOST", None)
 
     monkeypatch.setattr(settings, "S3_MEDIA_BUCKET", "test-bucket")
@@ -116,11 +116,10 @@ def test_process_upload_handles_portrait_and_alpha(monkeypatch):
     async def fake_init_redis():
         return None
 
-    async def fake_delete_cached_user(user_id, r=None):
-        return None
 
     monkeypatch.setattr("app.tasks.media.init_redis", fake_init_redis)
-    monkeypatch.setattr("app.tasks.media.delete_cached_user", fake_delete_cached_user)
+    monkeypatch.setattr("app.cache.delete_cached_user_info", AsyncMock())
+    monkeypatch.setattr("app.cache.delete_cached_user_profile", AsyncMock())
     monkeypatch.setattr(settings, "CLAMAV_HOST", None)
 
     monkeypatch.setattr(settings, "S3_MEDIA_BUCKET", "test-bucket")

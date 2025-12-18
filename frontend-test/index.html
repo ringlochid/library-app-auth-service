@@ -1,0 +1,1232 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Auth Service Tester</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0a0f;
+      --bg-secondary: #12121a;
+      --bg-card: rgba(20, 20, 30, 0.8);
+      --bg-input: rgba(255, 255, 255, 0.03);
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --accent-glow: rgba(99, 102, 241, 0.3);
+      --success: #10b981;
+      --error: #ef4444;
+      --warning: #f59e0b;
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --border: rgba(255, 255, 255, 0.08);
+      --gradient-1: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      --gradient-2: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    /* Background Effects */
+    .bg-effects {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    .bg-effects::before {
+      content: '';
+      position: absolute;
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%);
+      top: -200px;
+      right: -200px;
+      animation: float 20s ease-in-out infinite;
+    }
+
+    .bg-effects::after {
+      content: '';
+      position: absolute;
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, rgba(139, 92, 246, 0.1) 0%, transparent 70%);
+      bottom: -150px;
+      left: -150px;
+      animation: float 25s ease-in-out infinite reverse;
+    }
+
+    @keyframes float {
+
+      0%,
+      100% {
+        transform: translate(0, 0);
+      }
+
+      50% {
+        transform: translate(30px, 30px);
+      }
+    }
+
+    /* Layout */
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 0;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+      font-size: 1.5rem;
+      font-weight: 700;
+      background: var(--gradient-1);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .user-status {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      font-size: 0.85rem;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--error);
+    }
+
+    .status-dot.online {
+      background: var(--success);
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 24px;
+      overflow-x: auto;
+    }
+
+    .tab {
+      flex: 1;
+      min-width: 100px;
+      padding: 12px 20px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: 8px;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+
+    .tab:hover {
+      color: var(--text-primary);
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .tab.active {
+      background: var(--accent);
+      color: white;
+      box-shadow: 0 4px 12px var(--accent-glow);
+    }
+
+    /* Panels */
+    .panel {
+      display: none;
+    }
+
+    .panel.active {
+      display: block;
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* Cards */
+    .card {
+      background: var(--bg-card);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .card-icon {
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--gradient-1);
+      border-radius: 10px;
+      font-size: 1.2rem;
+    }
+
+    .card-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+    }
+
+    .card-subtitle {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    /* Grid */
+    .grid {
+      display: grid;
+      gap: 20px;
+    }
+
+    .grid-2 {
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    }
+
+    .grid-3 {
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    }
+
+    /* Form Elements */
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      padding: 12px 16px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text-primary);
+      font-size: 0.95rem;
+      transition: all 0.2s ease;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    input::placeholder {
+      color: var(--text-muted);
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      width: 100%;
+    }
+
+    .btn-primary {
+      background: var(--gradient-1);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px var(--accent-glow);
+    }
+
+    .btn-secondary {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .btn-success {
+      background: var(--success);
+      color: white;
+    }
+
+    .btn-danger {
+      background: var(--error);
+      color: white;
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .btn-group .btn {
+      flex: 1;
+      min-width: 120px;
+    }
+
+    /* Profile Avatar */
+    .avatar-container {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .avatar {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 4px solid var(--accent);
+      box-shadow: 0 8px 24px var(--accent-glow);
+      background: var(--bg-secondary);
+    }
+
+    .avatar-placeholder {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background: var(--gradient-2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 3rem;
+      color: white;
+      margin: 0 auto;
+    }
+
+    .avatar-upload-zone {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 40px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .avatar-upload-zone:hover {
+      border-color: var(--accent);
+      background: rgba(99, 102, 241, 0.05);
+    }
+
+    .avatar-upload-zone.dragover {
+      border-color: var(--accent);
+      background: rgba(99, 102, 241, 0.1);
+    }
+
+    /* Profile Info */
+    .profile-info {
+      text-align: center;
+    }
+
+    .profile-name {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .profile-email {
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    .profile-stats {
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      margin: 20px 0;
+    }
+
+    .stat {
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      background: var(--gradient-1);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .stat-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin: 2px;
+    }
+
+    .badge-role {
+      background: var(--accent);
+      color: white;
+    }
+
+    .badge-verified {
+      background: var(--success);
+      color: white;
+    }
+
+    .badge-unverified {
+      background: var(--warning);
+      color: black;
+    }
+
+    /* Response Log */
+    .log-container {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      max-height: 400px;
+      overflow: auto;
+    }
+
+    .log-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: var(--bg-secondary);
+    }
+
+    .log-content {
+      padding: 16px;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 0.85rem;
+      white-space: pre-wrap;
+      color: var(--text-secondary);
+    }
+
+    .log-entry {
+      padding: 12px;
+      margin-bottom: 8px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 8px;
+      border-left: 3px solid var(--accent);
+    }
+
+    .log-entry.error {
+      border-left-color: var(--error);
+    }
+
+    .log-entry.success {
+      border-left-color: var(--success);
+    }
+
+    /* Toast Notifications */
+    .toast-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .toast {
+      padding: 14px 20px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      backdrop-filter: blur(20px);
+      animation: slideIn 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 280px;
+    }
+
+    .toast.success {
+      border-left: 4px solid var(--success);
+    }
+
+    .toast.error {
+      border-left: 4px solid var(--error);
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    /* Utilities */
+    .hidden {
+      display: none !important;
+    }
+
+    .text-center {
+      text-align: center;
+    }
+
+    .text-muted {
+      color: var(--text-muted);
+    }
+
+    .text-success {
+      color: var(--success);
+    }
+
+    .text-error {
+      color: var(--error);
+    }
+
+    .mt-2 {
+      margin-top: 8px;
+    }
+
+    .mt-4 {
+      margin-top: 16px;
+    }
+
+    .mb-4 {
+      margin-bottom: 16px;
+    }
+
+    /* File Input */
+    .file-input-wrapper {
+      position: relative;
+    }
+
+    .file-input-wrapper input[type="file"] {
+      position: absolute;
+      opacity: 0;
+      width: 100%;
+      height: 100%;
+      cursor: pointer;
+    }
+
+    /* Progress Bar */
+    .progress-bar {
+      height: 6px;
+      background: var(--bg-input);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 12px;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--gradient-1);
+      transition: width 0.3s ease;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="bg-effects"></div>
+  <div class="toast-container" id="toastContainer"></div>
+
+  <div class="container">
+    <header>
+      <div class="logo">🔐 Auth Tester</div>
+      <div class="user-status">
+        <div class="status-badge">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">Not logged in</span>
+        </div>
+        <button class="btn btn-danger hidden" id="logoutBtn" style="width:auto;padding:8px 16px;">Logout</button>
+      </div>
+    </header>
+
+    <div class="tabs">
+      <button class="tab active" data-panel="auth">🔑 Auth</button>
+      <button class="tab" data-panel="email">📧 Email</button>
+      <button class="tab" data-panel="avatar">🖼️ Avatar</button>
+      <button class="tab" data-panel="profile">👤 Profile</button>
+      <button class="tab" data-panel="public">🔍 Lookup</button>
+      <button class="tab" data-panel="logs">📋 Logs</button>
+    </div>
+
+    <!-- Auth Panel -->
+    <div class="panel active" id="panel-auth">
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">📝</div>
+            <div>
+              <div class="card-title">Register</div>
+              <div class="card-subtitle">Create a new account</div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Username</label>
+            <input type="text" id="regName" placeholder="johndoe" />
+          </div>
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" id="regEmail" placeholder="john@example.com" />
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="regPassword" placeholder="Min 8 chars, upper, lower, digit, symbol" />
+          </div>
+          <button class="btn btn-primary" id="registerBtn">Create Account</button>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">🔓</div>
+            <div>
+              <div class="card-title">Login</div>
+              <div class="card-subtitle">Access your account</div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Email or Username</label>
+            <input type="text" id="loginIdentifier" placeholder="john@example.com or johndoe" />
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="loginPassword" placeholder="Your password" />
+          </div>
+          <button class="btn btn-primary" id="loginBtn">Sign In</button>
+          <div class="btn-group mt-4">
+            <button class="btn btn-secondary" id="refreshBtn">🔄 Refresh Token</button>
+            <button class="btn btn-secondary" id="sessionsBtn">📱 Sessions</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Email Panel -->
+    <div class="panel" id="panel-email">
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">📤</div>
+            <div>
+              <div class="card-title">Send Verification</div>
+              <div class="card-subtitle">Request email verification link</div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Email Address</label>
+            <input type="email" id="verifyEmail" placeholder="Your registered email" />
+          </div>
+          <button class="btn btn-primary" id="sendVerifyBtn">Send Verification Email</button>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">✅</div>
+            <div>
+              <div class="card-title">Verify Token</div>
+              <div class="card-subtitle">Complete email verification</div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Verification Token</label>
+            <input type="text" id="verifyToken" placeholder="Token from email link" />
+          </div>
+          <button class="btn btn-success" id="verifyBtn">Verify Email</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Avatar Panel -->
+    <div class="panel" id="panel-avatar">
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">📷</div>
+            <div>
+              <div class="card-title">Upload Avatar</div>
+              <div class="card-subtitle">Choose a profile picture</div>
+            </div>
+          </div>
+          <div class="avatar-upload-zone" id="uploadZone">
+            <div style="font-size:3rem;margin-bottom:12px;">📁</div>
+            <p>Drag & drop an image or click to browse</p>
+            <p class="text-muted" style="font-size:0.85rem;">JPEG, PNG, WebP • Max 5MB</p>
+            <input type="file" id="avatarFile" accept="image/jpeg,image/png,image/webp" />
+          </div>
+          <div id="uploadProgress" class="hidden">
+            <p id="uploadStatus">Uploading...</p>
+            <div class="progress-bar">
+              <div class="progress-fill" id="progressFill" style="width:0%"></div>
+            </div>
+          </div>
+          <div class="btn-group mt-4">
+            <button class="btn btn-primary" id="uploadBtn" disabled>Upload to S3</button>
+            <button class="btn btn-success" id="commitBtn" disabled>Commit Avatar</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-icon">🖼️</div>
+            <div>
+              <div class="card-title">Current Avatar</div>
+              <div class="card-subtitle">Preview your profile picture</div>
+            </div>
+          </div>
+          <div class="avatar-container">
+            <div class="avatar-placeholder" id="avatarPlaceholder">👤</div>
+            <img class="avatar hidden" id="currentAvatar" alt="Avatar" />
+          </div>
+          <div id="avatarUrls" class="text-muted text-center" style="font-size:0.8rem;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Profile Panel -->
+    <div class="panel" id="panel-profile">
+      <div class="card" id="profileCard">
+        <div id="profileContent" class="text-center text-muted" style="padding:40px;">
+          <p>Login to view your profile</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Public Profile Lookup Panel -->
+    <div class="panel" id="panel-public">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">🔍</div>
+          <div>
+            <div class="card-title">Public Profile Lookup</div>
+            <div class="card-subtitle">View any user's public profile</div>
+          </div>
+        </div>
+        <div class="grid grid-2">
+          <div class="form-group">
+            <label>User ID (UUID)</label>
+            <input type="text" id="lookupUserId" placeholder="e.g., 123e4567-e89b-..." />
+          </div>
+          <div class="form-group">
+            <label>Or Username</label>
+            <input type="text" id="lookupUsername" placeholder="e.g., johndoe" />
+          </div>
+        </div>
+        <button class="btn btn-primary" id="lookupBtn">Search Profile</button>
+      </div>
+
+      <div class="card hidden" id="publicProfileCard">
+        <div id="publicProfileContent"></div>
+      </div>
+    </div>
+
+    <!-- Logs Panel -->
+    <div class="panel" id="panel-logs">
+      <div class="log-container">
+        <div class="log-header">
+          <span style="font-weight:600;">API Response Log</span>
+          <button class="btn btn-secondary" id="clearLogsBtn"
+            style="width:auto;padding:6px 12px;font-size:0.8rem;">Clear</button>
+        </div>
+        <div class="log-content" id="logContent">
+          <div class="text-muted text-center" style="padding:40px;">No API calls yet</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Configuration
+    const API_BASE = 'https://enx4hyajcj.ap-southeast-2.awsapprunner.com';
+
+    // State
+    let accessToken = null;
+    let currentUser = null;
+    let pendingUpload = { key: null, presignedUrl: null, fields: null };
+    let selectedFile = null;
+
+    // DOM Helpers
+    const $ = id => document.getElementById(id);
+    const $$ = sel => document.querySelectorAll(sel);
+
+    // Tab Switching
+    $$('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        $$('.tab').forEach(t => t.classList.remove('active'));
+        $$('.panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        $(`panel-${tab.dataset.panel}`).classList.add('active');
+      });
+    });
+
+    // Toast Notifications
+    function toast(message, type = 'info') {
+      const container = $('toastContainer');
+      const div = document.createElement('div');
+      div.className = `toast ${type}`;
+      div.innerHTML = `<span>${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span><span>${message}</span>`;
+      container.appendChild(div);
+      setTimeout(() => div.remove(), 4000);
+    }
+
+    // Logging
+    function log(label, data, isError = false) {
+      const content = $('logContent');
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${isError ? 'error' : data.ok ? 'success' : ''}`;
+      entry.innerHTML = `<strong>${new Date().toLocaleTimeString()} - ${label}</strong>\n${JSON.stringify(data, null, 2)}`;
+
+      if (content.querySelector('.text-muted')) content.innerHTML = '';
+      content.insertBefore(entry, content.firstChild);
+    }
+
+    // API Call Helper
+    async function api(method, path, body = null, auth = false) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (auth && accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+
+      try {
+        const res = await fetch(API_BASE + path, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+          credentials: 'include'
+        });
+
+        const text = await res.text();
+        let data;
+        try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+
+        const result = { status: res.status, ok: res.ok, body: data };
+        log(path, result, !res.ok);
+        return result;
+      } catch (err) {
+        const result = { status: 0, ok: false, body: { error: err.message } };
+        log(path, result, true);
+        return result;
+      }
+    }
+
+    // Update UI State
+    function updateAuthState(isLoggedIn, user = null) {
+      currentUser = user;
+      $('statusDot').classList.toggle('online', isLoggedIn);
+      $('statusText').textContent = isLoggedIn ? (user?.name || 'Logged in') : 'Not logged in';
+      $('logoutBtn').classList.toggle('hidden', !isLoggedIn);
+
+      if (isLoggedIn && user) {
+        renderProfile(user);
+        if (user.avatar_urls) {
+          renderAvatarPreview(user.avatar_urls);
+        }
+      } else {
+        $('profileContent').innerHTML = '<p class="text-muted" style="padding:40px;">Login to view your profile</p>';
+      }
+    }
+
+    // Render Profile
+    function renderProfile(user) {
+      const verified = user.email_verified_at ?
+        '<span class="badge badge-verified">✓ Verified</span>' :
+        '<span class="badge badge-unverified">Unverified</span>';
+
+      const roles = (user.roles || ['user']).map(r => `<span class="badge badge-role">${r}</span>`).join('');
+
+      const avatarHtml = user.avatar_urls && user.avatar_urls['512'] ?
+        `<img class="avatar" src="${user.avatar_urls['512']}" alt="Avatar" />` :
+        `<div class="avatar-placeholder">${(user.name || 'U')[0].toUpperCase()}</div>`;
+
+      $('profileContent').innerHTML = `
+        <div class="avatar-container">${avatarHtml}</div>
+        <div class="profile-info">
+          <div class="profile-name">${user.name}</div>
+          <div class="profile-email">${user.email || ''} ${verified}</div>
+          <div>${roles}</div>
+          <div class="profile-stats">
+            <div class="stat">
+              <div class="stat-value">${user.trust_score || 0}</div>
+              <div class="stat-label">Trust Score</div>
+            </div>
+            <div class="stat">
+              <div class="stat-value">${(user.reputation_percentage || 0).toFixed(0)}%</div>
+              <div class="stat-label">Reputation</div>
+            </div>
+          </div>
+          ${user.bio ? `<p class="text-muted">"${user.bio}"</p>` : ''}
+        </div>
+      `;
+    }
+
+    // Render Public Profile
+    function renderPublicProfile(user) {
+      const avatarHtml = user.avatar_urls && user.avatar_urls['512'] ?
+        `<img class="avatar" src="${user.avatar_urls['512']}" alt="Avatar" />` :
+        `<div class="avatar-placeholder">${(user.name || 'U')[0].toUpperCase()}</div>`;
+
+      const roles = (user.roles || ['user']).map(r => `<span class="badge badge-role">${r}</span>`).join('');
+
+      $('publicProfileContent').innerHTML = `
+        <div class="avatar-container">${avatarHtml}</div>
+        <div class="profile-info">
+          <div class="profile-name">${user.name || 'Unknown'}</div>
+          <div>${roles}</div>
+          <div class="profile-stats">
+            <div class="stat">
+              <div class="stat-value">${user.trust_score || 0}</div>
+              <div class="stat-label">Trust Score</div>
+            </div>
+            <div class="stat">
+              <div class="stat-value">${(user.reputation_percentage || 0).toFixed(0)}%</div>
+              <div class="stat-label">Reputation</div>
+            </div>
+          </div>
+          ${user.bio ? `<p class="text-muted">"${user.bio}"</p>` : '<p class="text-muted">No bio</p>'}
+          <p class="text-muted mt-2" style="font-size:0.8rem;">Joined: ${new Date(user.created_at).toLocaleDateString()}</p>
+        </div>
+      `;
+      $('publicProfileCard').classList.remove('hidden');
+    }
+
+    // Render Avatar Preview
+    function renderAvatarPreview(urls) {
+      if (urls && urls['512']) {
+        $('avatarPlaceholder').classList.add('hidden');
+        $('currentAvatar').classList.remove('hidden');
+        $('currentAvatar').src = urls['512'];
+        $('avatarUrls').innerHTML = Object.entries(urls).map(([size, url]) =>
+          `<a href="${url}" target="_blank" style="color:var(--accent);">${size}px</a>`
+        ).join(' | ');
+      }
+    }
+
+    // Event Handlers
+
+    // Register
+    $('registerBtn').onclick = async () => {
+      const res = await api('POST', '/auth/register', {
+        name: $('regName').value.trim(),
+        email: $('regEmail').value.trim(),
+        password: $('regPassword').value
+      });
+
+      if (res.ok) {
+        toast('Account created! Please verify your email.', 'success');
+        $('verifyEmail').value = $('regEmail').value;
+      } else {
+        toast(res.body?.detail || 'Registration failed', 'error');
+      }
+    };
+
+    // Login
+    $('loginBtn').onclick = async () => {
+      const identifier = $('loginIdentifier').value.trim();
+      const payload = {
+        password: $('loginPassword').value,
+        email: identifier.includes('@') ? identifier : null,
+        name: identifier.includes('@') ? null : identifier
+      };
+
+      const res = await api('POST', '/auth/login', payload);
+
+      if (res.ok && res.body.access_token) {
+        accessToken = res.body.access_token;
+        toast('Login successful!', 'success');
+
+        // Fetch user profile
+        const me = await api('GET', '/user/me', null, true);
+        if (me.ok) updateAuthState(true, me.body);
+      } else {
+        toast(res.body?.detail || 'Login failed', 'error');
+      }
+    };
+
+    // Logout
+    $('logoutBtn').onclick = async () => {
+      await api('POST', '/auth/logout', {});
+      accessToken = null;
+      updateAuthState(false);
+      toast('Logged out', 'success');
+    };
+
+    // Refresh
+    $('refreshBtn').onclick = async () => {
+      const res = await api('POST', '/auth/refresh', {});
+      if (res.ok && res.body.access_token) {
+        accessToken = res.body.access_token;
+        toast('Token refreshed!', 'success');
+      } else {
+        toast('Refresh failed - please login again', 'error');
+      }
+    };
+
+    // Sessions
+    $('sessionsBtn').onclick = async () => {
+      const res = await api('GET', '/auth/sessions', null, true);
+      if (res.ok) toast(`You have ${res.body?.length || 0} active sessions`, 'success');
+    };
+
+    // Send Verification Email
+    $('sendVerifyBtn').onclick = async () => {
+      const res = await api('POST', '/auth/verify-email/send', {
+        email: $('verifyEmail').value.trim()
+      });
+
+      if (res.ok) {
+        toast('Verification email sent! Check your inbox.', 'success');
+      } else {
+        toast(res.body?.detail || 'Failed to send email', 'error');
+      }
+    };
+
+    // Verify Email
+    $('verifyBtn').onclick = async () => {
+      const token = $('verifyToken').value.trim();
+      const res = await api('GET', `/auth/verify-email?token=${encodeURIComponent(token)}`);
+
+      if (res.ok) {
+        toast('Email verified successfully!', 'success');
+      } else {
+        toast(res.body?.detail || 'Verification failed', 'error');
+      }
+    };
+
+    // Avatar Upload Zone
+    const uploadZone = $('uploadZone');
+    const fileInput = $('avatarFile');
+
+    uploadZone.addEventListener('dragover', e => {
+      e.preventDefault();
+      uploadZone.classList.add('dragover');
+    });
+
+    uploadZone.addEventListener('dragleave', () => {
+      uploadZone.classList.remove('dragover');
+    });
+
+    uploadZone.addEventListener('drop', e => {
+      e.preventDefault();
+      uploadZone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith('image/')) {
+        handleFileSelect(file);
+      }
+    });
+
+    fileInput.addEventListener('change', e => {
+      if (e.target.files[0]) handleFileSelect(e.target.files[0]);
+    });
+
+    function handleFileSelect(file) {
+      selectedFile = file;
+      uploadZone.innerHTML = `<div style="font-size:2rem;margin-bottom:8px;">✅</div><p>${file.name}</p><p class="text-muted">${(file.size / 1024).toFixed(1)} KB</p>`;
+      $('uploadBtn').disabled = false;
+    }
+
+    // Get Presigned URL and Upload
+    $('uploadBtn').onclick = async () => {
+      if (!selectedFile || !accessToken) {
+        toast('Please login and select a file', 'error');
+        return;
+      }
+
+      $('uploadProgress').classList.remove('hidden');
+      $('uploadStatus').textContent = 'Getting upload URL...';
+      $('progressFill').style.width = '20%';
+
+      // Get presigned URL
+      const res = await api('POST', '/auth/avatar/upload', {
+        content_type: selectedFile.type
+      }, true);
+
+      if (!res.ok) {
+        toast('Failed to get upload URL', 'error');
+        $('uploadProgress').classList.add('hidden');
+        return;
+      }
+
+      pendingUpload = res.body;
+      $('uploadStatus').textContent = 'Uploading to S3...';
+      $('progressFill').style.width = '50%';
+
+      // Upload to S3 using presigned POST
+      try {
+        const formData = new FormData();
+        Object.entries(pendingUpload.fields || {}).forEach(([k, v]) => formData.append(k, v));
+        formData.append('file', selectedFile);
+
+        const uploadRes = await fetch(pendingUpload.url, {
+          method: 'POST',
+          body: formData
+        });
+
+        if (uploadRes.ok || uploadRes.status === 204) {
+          $('uploadStatus').textContent = 'Upload complete! Click Commit to save.';
+          $('progressFill').style.width = '80%';
+          $('commitBtn').disabled = false;
+          toast('File uploaded! Now click Commit.', 'success');
+        } else {
+          throw new Error('S3 upload failed');
+        }
+      } catch (err) {
+        toast('Upload failed: ' + err.message, 'error');
+        $('uploadProgress').classList.add('hidden');
+      }
+    };
+
+    // Commit Avatar
+    $('commitBtn').onclick = async () => {
+      if (!pendingUpload.key) {
+        toast('No pending upload', 'error');
+        return;
+      }
+
+      $('uploadStatus').textContent = 'Processing...';
+
+      const res = await api('POST', '/auth/avatar/commit', {
+        key: pendingUpload.key
+      }, true);
+
+      if (res.ok) {
+        $('progressFill').style.width = '100%';
+        $('uploadStatus').textContent = 'Avatar updated!';
+        toast('Avatar saved successfully!', 'success');
+
+        // Refresh profile
+        const me = await api('GET', '/user/me', null, true);
+        if (me.ok) updateAuthState(true, me.body);
+
+        // Reset
+        setTimeout(() => {
+          $('uploadProgress').classList.add('hidden');
+          $('uploadBtn').disabled = true;
+          $('commitBtn').disabled = true;
+          pendingUpload = {};
+        }, 2000);
+      } else {
+        toast(res.body?.detail || 'Commit failed', 'error');
+      }
+    };
+
+    // Public Profile Lookup
+    $('lookupBtn').onclick = async () => {
+      const userId = $('lookupUserId').value.trim();
+      const username = $('lookupUsername').value.trim();
+
+      let path = '/user/profile';
+      if (userId) path = `/user/profile/${userId}`;
+      else if (username) path = `/user/profile?name=${encodeURIComponent(username)}`;
+      else {
+        toast('Enter a user ID or username', 'error');
+        return;
+      }
+
+      const res = await api('GET', path);
+
+      if (res.ok) {
+        renderPublicProfile(res.body);
+        toast('Profile found!', 'success');
+      } else {
+        $('publicProfileCard').classList.add('hidden');
+        toast(res.body?.detail || 'User not found', 'error');
+      }
+    };
+
+    // Clear Logs
+    $('clearLogsBtn').onclick = () => {
+      $('logContent').innerHTML = '<div class="text-muted text-center" style="padding:40px;">No API calls yet</div>';
+    };
+
+    // Initialize
+    updateAuthState(false);
+  </script>
+</body>
+
+</html>

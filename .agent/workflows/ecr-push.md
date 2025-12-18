@@ -41,11 +41,20 @@ docker push ${ECR_URI}:latest
 
 ## Quick One-Liner (after login)
 ```bash
-docker build -t library-app-auth-service . && \
-docker tag library-app-auth-service:latest ${ECR_URI}:latest && \
+docker build -t library-auth-service . && \
+docker tag library-auth-service:latest ${ECR_URI}:latest && \
 docker push ${ECR_URI}:latest
 ```
 
 ## Notes
 - Make sure the ECR repository exists before pushing
 - Create repo if needed: `aws ecr create-repository --repository-name library-app-auth-service --region ap-southeast-2`
+
+
+
+## clamav:
+
+cd clamav
+docker build -t clamav-tcp .
+docker tag clamav-tcp:latest 681802564174.dkr.ecr.ap-southeast-2.amazonaws.com/clamav-tcp:latest
+docker push 681802564174.dkr.ecr.ap-southeast-2.amazonaws.com/clamav-tcp:latest

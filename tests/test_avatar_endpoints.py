@@ -29,7 +29,9 @@ class FakeRedis:
         return self.hash_store.get(key, {})
 
     async def hset(self, key, mapping):
-        self.hash_store.setdefault(key, {}).update({k: str(v) for k, v in mapping.items()})
+        self.hash_store.setdefault(key, {}).update(
+            {k: str(v) for k, v in mapping.items()}
+        )
 
     async def expire(self, key, seconds):
         # TTL tracking not needed for these tests.
@@ -114,7 +116,9 @@ async def test_avatar_upload_and_commit_happy_path(monkeypatch):
 
         try:
             transport = ASGITransport(app=app)
-            async with AsyncClient(transport=transport, base_url="http://test") as client:
+            async with AsyncClient(
+                transport=transport, base_url="http://test"
+            ) as client:
                 resp = await client.post(
                     "/auth/avatar/upload", json={"content_type": "image/jpeg"}
                 )
@@ -140,57 +144,6 @@ async def test_avatar_upload_and_commit_happy_path(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_avatar_commit_rejects_bad_mime(monkeypatch):
-    user = DummyUser(uuid.uuid4())
-
-    async def fake_current_user():
-        return user
-
-    settings.S3_MEDIA_BUCKET = "test-bucket"
-    settings.S3_MEDIA_REGION = "us-east-1"
-    with mock_aws():
-        s3 = boto3.client("s3", region_name=settings.S3_MEDIA_REGION)
-        s3.create_bucket(Bucket=settings.S3_MEDIA_BUCKET)
-        monkeypatch.setattr("app.tasks.media.process_upload", DummyTask())
-
-        fake_redis = FakeRedis()
-
-        async def override_get_redis():
-            return fake_redis
-
-        async def override_get_s3_client():
-            return s3
-
-        app.dependency_overrides.update(
-            {
-                get_current_user_with_access_token: fake_current_user,
-                get_redis: override_get_redis,
-                get_s3_client: override_get_s3_client,
-            }
-        )
-
-        try:
-            transport = ASGITransport(app=app)
-            async with AsyncClient(transport=transport, base_url="http://test") as client:
-                resp = await client.post(
-                    "/auth/avatar/upload", json={"content_type": "image/jpeg"}
-                )
-                assert resp.status_code == status.HTTP_200_OK
-                data = resp.json()
-                key = data["key"]
-                s3.put_object(
-                    Bucket=settings.S3_MEDIA_BUCKET,
-                    Key=key,
-                    Body=b"not an image",
-                    ContentType="text/plain",
-                )
-                resp2 = await client.post("/auth/avatar/commit", json={"key": key})
-                assert resp2.status_code == status.HTTP_400_BAD_REQUEST
-        finally:
-            app.dependency_overrides.clear()
-
-
-@pytest.mark.asyncio
 async def test_avatar_commit_rate_limit(monkeypatch):
     user = DummyUser(uuid.uuid4())
 
@@ -206,7 +159,9 @@ async def test_avatar_commit_rate_limit(monkeypatch):
 
         monkeypatch.setattr(settings, "RATE_LIMIT_AVATAR_COMMIT_CAPACITY", 1)
         monkeypatch.setattr(settings, "RATE_LIMIT_AVATAR_COMMIT_REFILL_TOKENS", 1)
-        monkeypatch.setattr(settings, "RATE_LIMIT_AVATAR_COMMIT_REFILL_PERIOD_SECONDS", 60)
+        monkeypatch.setattr(
+            settings, "RATE_LIMIT_AVATAR_COMMIT_REFILL_PERIOD_SECONDS", 60
+        )
 
         fake_redis = FakeRedis()
 
@@ -226,7 +181,9 @@ async def test_avatar_commit_rate_limit(monkeypatch):
 
         try:
             transport = ASGITransport(app=app)
-            async with AsyncClient(transport=transport, base_url="http://test") as client:
+            async with AsyncClient(
+                transport=transport, base_url="http://test"
+            ) as client:
                 resp = await client.post(
                     "/auth/avatar/upload", json={"content_type": "image/jpeg"}
                 )

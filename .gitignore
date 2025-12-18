@@ -1,5 +1,4 @@
 keys/
-frontend-test/
 .env
 .env.bak
 __pycache__/
@@ -40,3 +39,4 @@ ENV/
 dmypy.json
 ROADMAP.md
 DOC.md
+.agent/

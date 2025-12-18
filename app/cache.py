@@ -9,11 +9,23 @@ from app.redis_client import init_redis
 from app.settings import settings
 
 
+class CacheEncoder(json.JSONEncoder):
+    """JSON encoder that handles datetime and UUID objects."""
+
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        if isinstance(obj, uuid.UUID):
+            return str(obj)
+        return super().default(obj)
+
+
 DEFAULT_TTL = settings.CACHE_DEFAULT_TTL_SECONDS
 
 
 def make_user_info_key(user_id: uuid.UUID) -> str:
     return f"user:{user_id}:info"
+
 
 def make_user_exist_key(user_id: uuid.UUID | None, name: str | None) -> str:
     if user_id:
@@ -22,6 +34,8 @@ def make_user_exist_key(user_id: uuid.UUID | None, name: str | None) -> str:
         return f"user:exists:name:{name}"
     else:
         raise ValueError("Either user_id or name must be provided")
+
+
 def make_user_profile_key(user_id: uuid.UUID | None, name: str | None) -> str:
     if user_id:
         return f"user:profile:id:{user_id}"
@@ -30,12 +44,14 @@ def make_user_profile_key(user_id: uuid.UUID | None, name: str | None) -> str:
     else:
         raise ValueError("Either user_id or name must be provided")
 
+
 async def cache_user_info(
     user_id: uuid.UUID, user_data: dict, r: Redis | None = None, ttl: int = DEFAULT_TTL
 ) -> None:
     r = r or await init_redis()
     payload = json.dumps(user_data, ensure_ascii=False)
     await r.set(make_user_info_key(user_id), payload, ex=ttl)
+
 
 async def cache_user(
     user_id: uuid.UUID, user_data: dict, r: Redis | None = None, ttl: int = DEFAULT_TTL
@@ -44,6 +60,7 @@ async def cache_user(
     Backwards-compatible helper used in tests to cache user data by id.
     """
     await cache_user_info(user_id, user_data, r, ttl)
+
 
 async def cache_user_existence(
     user_id: uuid.UUID | None,
@@ -56,6 +73,7 @@ async def cache_user_existence(
     payload = json.dumps(data, ensure_ascii=False)
     await r.set(make_user_exist_key(user_id, name), payload, ex=ttl)
 
+
 async def cache_user_profile(
     user_id: uuid.UUID | None,
     name: str | None,
@@ -64,21 +82,26 @@ async def cache_user_profile(
     ttl: int = DEFAULT_TTL,
 ) -> None:
     r = r or await init_redis()
-    payload = json.dumps(data, ensure_ascii=False)
+    payload = json.dumps(data, ensure_ascii=False, cls=CacheEncoder)
     await r.set(make_user_profile_key(user_id, name), payload, ex=ttl)
 
-async def get_cached_user_info(user_id: uuid.UUID, r: Redis | None = None) -> dict | None:
+
+async def get_cached_user_info(
+    user_id: uuid.UUID, r: Redis | None = None
+) -> dict | None:
     r = r or await init_redis()
     data = await r.get(make_user_info_key(user_id))
     if not data:
         return None
     return json.loads(data)
 
+
 async def get_cached_user(user_id: uuid.UUID, r: Redis | None = None) -> dict | None:
     """
     Backwards-compatible helper used in tests to fetch cached user data by id.
     """
     return await get_cached_user_info(user_id, r)
+
 
 async def get_cached_user_existence(
     user_id: uuid.UUID | None, name: str | None, r: Redis | None = None
@@ -89,6 +112,7 @@ async def get_cached_user_existence(
         return None
     return json.loads(data)
 
+
 async def get_cached_user_profile(
     user_id: uuid.UUID | None, name: str | None, r: Redis | None = None
 ) -> dict | None:
@@ -98,9 +122,11 @@ async def get_cached_user_profile(
         return None
     return json.loads(data)
 
+
 async def delete_cached_user_info(user_id: uuid.UUID, r: Redis | None = None) -> None:
     r = r or await init_redis()
     await r.delete(make_user_info_key(user_id))
+
 
 async def delete_cached_user_existence(
     user_id: uuid.UUID | None, name: str | None, r: Redis | None = None
@@ -108,11 +134,13 @@ async def delete_cached_user_existence(
     r = r or await init_redis()
     await r.delete(make_user_exist_key(user_id, name))
 
+
 async def delete_cached_user_profile(
     user_id: uuid.UUID | None, name: str | None, r: Redis | None = None
 ) -> None:
     r = r or await init_redis()
     await r.delete(make_user_profile_key(user_id, name))
+
 
 def make_access_key(user_id: uuid.UUID) -> str:
     return f"user:{user_id}:access"
@@ -120,6 +148,7 @@ def make_access_key(user_id: uuid.UUID) -> str:
 
 def make_access_blacklist_key(jti: str) -> str:
     return f"blacklist:access:{jti}"
+
 
 async def cache_access(
     key: str,

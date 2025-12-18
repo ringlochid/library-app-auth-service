@@ -6,7 +6,14 @@ from redis.asyncio import Redis
 
 from app.database import get_db
 from app.redis_client import get_redis
-from app.cache import cache_user_profile, get_cached_user_existence, cache_user_existence, get_cached_user_profile, token_bucket_allow, make_rate_limit_key
+from app.cache import (
+    cache_user_profile,
+    get_cached_user_existence,
+    cache_user_existence,
+    get_cached_user_profile,
+    token_bucket_allow,
+    make_rate_limit_key,
+)
 from app.settings import settings
 from app.models import User
 from app.security import get_current_user_with_access_token
@@ -22,6 +29,7 @@ from app.services.trust import adjust_trust_score, get_trust_history
 from app.rbac import calculate_user_roles
 
 router = APIRouter(prefix="/user", tags=["user services"])
+
 
 @router.get("/me", response_model=UserRead)
 async def who_am_i(user: User = Depends(get_current_user_with_access_token)):
@@ -187,17 +195,22 @@ async def get_user_trust_history(
         offset=offset,
     )
 
+
 @router.get("/check/{user_id}", response_model=UserExistsResponse)
-@router.get("/check", response_model=UserExistsResponse) 
+@router.get("/check", response_model=UserExistsResponse)
 async def check_user_existence(
     user_id: uuid.UUID | None = None,
-    name : str | None = Query(None, description="Optional name parameter for future use"),
+    name: str | None = Query(
+        None, description="Optional name parameter for future use"
+    ),
     db: AsyncSession = Depends(get_db),
-    r : Redis = Depends(get_redis),
+    r: Redis = Depends(get_redis),
     _x_service_auth: None = Depends(verify_service_token),
 ):
     if not user_id and not name:
-        raise HTTPException(status_code=400, detail="Either user_id or name must be provided")
+        raise HTTPException(
+            status_code=400, detail="Either user_id or name must be provided"
+        )
     rl_key = make_rate_limit_key("user_check", str(user_id) if user_id else name)
     allowed, _ = await token_bucket_allow(
         rl_key,
@@ -223,7 +236,7 @@ async def check_user_existence(
     user = raw.scalar_one_or_none()
     if not user:
         return UserExistsResponse(exists=False)
-    
+
     data = {
         "exists": True,
         "user_id": user.id,
@@ -232,21 +245,26 @@ async def check_user_existence(
         "is_locked": user.is_locked,
         "is_blacklisted": user.is_blacklisted,
     }
-    
+
     await cache_user_existence(user_id, name, data, r)
     return data
+
 
 # public endpoint to show user profile
 @router.get("/profile/{user_id}", response_model=UserProfile)
 @router.get("/profile", response_model=UserProfile)
 async def get_user_profile(
     user_id: uuid.UUID | None = None,
-    name : str | None = Query(None, description="Optional name parameter for future use"),
+    name: str | None = Query(
+        None, description="Optional name parameter for future use"
+    ),
     db: AsyncSession = Depends(get_db),
-    r : Redis = Depends(get_redis),
+    r: Redis = Depends(get_redis),
 ):
     if not user_id and not name:
-        raise HTTPException(status_code=400, detail="Either user_id or name must be provided")
+        raise HTTPException(
+            status_code=400, detail="Either user_id or name must be provided"
+        )
     cached = await get_cached_user_profile(user_id, name, r)
     if cached is not None:
         return cached
@@ -259,6 +277,6 @@ async def get_user_profile(
     user = raw.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    data = UserProfile(user, from_attributes=True).model_dump()
+    data = UserProfile.model_validate(user).model_dump()
     await cache_user_profile(user_id, name, data, r)
     return data

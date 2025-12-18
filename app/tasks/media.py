@@ -1,6 +1,7 @@
 """
 Media-related tasks: validation, resize, virus scan, S3 moves.
 """
+
 import asyncio
 import io
 import math
@@ -13,10 +14,10 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from botocore.exceptions import ClientError
 
 from app.celery_app import app
-from app.cache import delete_cached_user_info, delete_cached_user_profile
-from app.database import AsyncSessionLocal
+from app.cache import make_user_info_key, make_user_profile_key
+from app.database import create_worker_session
 from app.models import User
-from app.redis_client import init_redis
+from app.redis_client import create_worker_redis
 from app.settings import settings
 
 try:
@@ -153,9 +154,7 @@ def _transform_image(
                 if resized.width >= target and resized.height >= target:
                     left = (resized.width - target) // 2
                     top = (resized.height - target) // 2
-                    resized = resized.crop(
-                        (left, top, left + target, top + target)
-                    )
+                    resized = resized.crop((left, top, left + target, top + target))
 
                 # Ensure color space is compatible with output format
                 if output_format == "JPEG":
@@ -192,34 +191,36 @@ def _transform_image(
         raise MediaProcessingError("File is not a valid image") from exc
 
 
-async def _update_user_avatar(user_id: uuid.UUID, final_key: str) -> str | None:
-    """
-    Persist the new avatar key, returning the previous one if it existed.
-    """
-    async with AsyncSessionLocal() as session:
-        user = await session.get(User, user_id)
-        if user is None:
-            raise MediaProcessingError("User not found for avatar update")
-        old = user.avatar_key
-        user.avatar_key = final_key
-        await session.commit()
-        return old
-
-
 async def _persist_avatar_and_bust_cache(
     user_id: uuid.UUID, final_key: str
 ) -> str | None:
     """
     Persist the avatar and invalidate cached user info.
+
+    Creates fresh database and Redis connections to avoid event loop
+    conflicts in Celery worker context.
     """
-    old_key = await _update_user_avatar(user_id, final_key)
+    # Create fresh connections for this task
+    WorkerSession, engine = create_worker_session()
+    redis = create_worker_redis()
+
     try:
-        redis = await init_redis()
-        await delete_cached_user_info(user_id, redis)
-        await delete_cached_user_profile(user_id, None, redis)
-    except Exception:
-        pass
-    return old_key
+        async with WorkerSession() as session:
+            user = await session.get(User, user_id)
+            if user is None:
+                raise MediaProcessingError("User not found for avatar update")
+            old_key = user.avatar_key
+            user.avatar_key = final_key
+            await session.commit()
+
+        # Bust cache
+        await redis.delete(make_user_info_key(user_id))
+        await redis.delete(make_user_profile_key(user_id, None))
+
+        return old_key
+    finally:
+        await redis.close()
+        await engine.dispose()
 
 
 @app.task(name="tasks.media.process_upload")

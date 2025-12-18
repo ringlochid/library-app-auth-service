@@ -41,3 +41,16 @@ async def get_redis(request: Request) -> Redis:
     if request is not None and hasattr(request.app.state, "redis"):
         return request.app.state.redis
     return await init_redis()
+
+
+def create_worker_redis() -> Redis:
+    """
+    Create a fresh Redis connection for Celery worker use.
+
+    This avoids event loop conflicts that occur when reusing the global
+    _redis which may be bound to a different event loop.
+
+    Returns:
+        Fresh Redis connection - caller must close when done.
+    """
+    return from_url(REDIS_URL, decode_responses=True)

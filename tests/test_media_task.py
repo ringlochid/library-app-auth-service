@@ -9,11 +9,21 @@ from sqlalchemy.pool import NullPool
 from botocore.exceptions import ClientError
 from moto import mock_aws
 from PIL import Image
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from app.models import Base, User
 from app.tasks.media import process_upload
 from app.settings import settings
+
+
+class FakeRedis:
+    """Fake async Redis for testing."""
+
+    async def delete(self, key):
+        pass
+
+    async def close(self):
+        pass
 
 
 @mock_aws
@@ -21,16 +31,7 @@ def test_process_upload_promotes_and_updates_user(monkeypatch):
     """
     Happy-path: tmp upload is scanned, resized, moved to final key, tmp deleted, and user updated.
     """
-    # Avoid touching real Redis/AV during the test.
-    async def fake_init_redis():
-        return None
-
-
-    monkeypatch.setattr("app.tasks.media.init_redis", fake_init_redis)
-    monkeypatch.setattr("app.cache.delete_cached_user_info", AsyncMock())
-    monkeypatch.setattr("app.cache.delete_cached_user_profile", AsyncMock())
     monkeypatch.setattr(settings, "CLAMAV_HOST", None)
-
     monkeypatch.setattr(settings, "S3_MEDIA_BUCKET", "test-bucket")
     monkeypatch.setattr(settings, "S3_MEDIA_REGION", "us-east-1")
     monkeypatch.setattr(settings, "AVATAR_MAX_BYTES", 5 * 1024 * 1024)
@@ -42,7 +43,15 @@ def test_process_upload_promotes_and_updates_user(monkeypatch):
         str(settings.DATABASE_URL), future=True, poolclass=NullPool
     )
     TestSessionLocal = async_sessionmaker(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.tasks.media.AsyncSessionLocal", TestSessionLocal)
+
+    # Mock create_worker_session to return our test session factory
+    def mock_create_worker_session():
+        return TestSessionLocal, test_engine
+
+    monkeypatch.setattr(
+        "app.tasks.media.create_worker_session", mock_create_worker_session
+    )
+    monkeypatch.setattr("app.tasks.media.create_worker_redis", lambda: FakeRedis())
 
     async def setup_user():
         async with test_engine.begin() as conn:
@@ -113,15 +122,7 @@ def test_process_upload_handles_portrait_and_alpha(monkeypatch):
     """
     Ensure portrait images with alpha are center-cropped to square variants and retain content type.
     """
-    async def fake_init_redis():
-        return None
-
-
-    monkeypatch.setattr("app.tasks.media.init_redis", fake_init_redis)
-    monkeypatch.setattr("app.cache.delete_cached_user_info", AsyncMock())
-    monkeypatch.setattr("app.cache.delete_cached_user_profile", AsyncMock())
     monkeypatch.setattr(settings, "CLAMAV_HOST", None)
-
     monkeypatch.setattr(settings, "S3_MEDIA_BUCKET", "test-bucket")
     monkeypatch.setattr(settings, "S3_MEDIA_REGION", "us-east-1")
     monkeypatch.setattr(settings, "AVATAR_MAX_BYTES", 5 * 1024 * 1024)
@@ -132,7 +133,15 @@ def test_process_upload_handles_portrait_and_alpha(monkeypatch):
         str(settings.DATABASE_URL), future=True, poolclass=NullPool
     )
     TestSessionLocal = async_sessionmaker(test_engine, expire_on_commit=False)
-    monkeypatch.setattr("app.tasks.media.AsyncSessionLocal", TestSessionLocal)
+
+    # Mock create_worker_session to return our test session factory
+    def mock_create_worker_session():
+        return TestSessionLocal, test_engine
+
+    monkeypatch.setattr(
+        "app.tasks.media.create_worker_session", mock_create_worker_session
+    )
+    monkeypatch.setattr("app.tasks.media.create_worker_redis", lambda: FakeRedis())
 
     async def setup_user():
         async with test_engine.begin() as conn:

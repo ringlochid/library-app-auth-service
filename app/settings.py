@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     )
 
     DATABASE_URL: AnyUrl
+    DATABASE_WORKER_URL: AnyUrl | None = None  # Separate URL for Celery workers
     REDIS_URL: AnyUrl | None = None
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379

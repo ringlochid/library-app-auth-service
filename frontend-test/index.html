@@ -824,8 +824,10 @@
   </div>
 
   <script>
-    // Configuration
-    const API_BASE = 'https://enx4hyajcj.ap-southeast-2.awsapprunner.com';
+    // Configuration - use current origin for same-origin requests, or override for local dev
+    const API_BASE = window.location.origin.includes('localhost:5500') 
+      ? 'https://enx4hyajcj.ap-southeast-2.awsapprunner.com'  // Local dev override
+      : window.location.origin;  // Same-origin when served from API
 
     // State
     let accessToken = null;

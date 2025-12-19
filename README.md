@@ -2,6 +2,31 @@
 
 FastAPI-based authentication service with JWT access/refresh tokens, email verification, rate limiting, Role-Based Access Control (RBAC) with jury system, avatar processing with ClamAV antivirus scanning, and Celery-powered async tasks.
 
+## 🚀 Live Demo For Test Purpose Only
+
+**Try it now:** [https://enx4hyajcj.ap-southeast-2.awsapprunner.com/test](https://enx4hyajcj.ap-southeast-2.awsapprunner.com/test)
+
+### Testable Features
+
+| Tab | Features |
+|-----|----------|
+| 🔑 **Auth** | Register new account, Login with email/username, Refresh tokens, View active sessions |
+| 📧 **Email** | Request verification email, Verify email with token |
+| 🖼️ **Avatar** | Drag & drop upload, Presigned S3 URLs, ClamAV antivirus scan, Multi-size variants (64-512px) |
+| 👤 **Profile** | View your profile, Trust score, Reputation %, Role badge, Email verification status |
+| 🔍 **Lookup** | Search any user by ID or username, View public profiles |
+| 📋 **Logs** | Real-time API response log with status codes and payloads |
+
+### Test Flow
+
+1. **Register** → Creates account (email verification required for protected routes)
+2. **Login** → Receive access token (stored in memory) + refresh token (HTTP-only cookie)
+3. **Verify Email** → Check your inbox for verification link, or paste token manually
+4. **Upload Avatar** → Select image → Upload to S3 → Commit to trigger processing
+5. **View Profile** → See your avatar, role, trust score, and reputation
+6. **Lookup Users** → Search any user's public profile by username or UUID
+
+
 ## Features
 - **JWT Tokens**: RS256 (RSA) with access/refresh token family for reuse detection and blacklist.
 - **Email Verification**: Hashed verification tokens with expiration and enforced verification on protected routes.

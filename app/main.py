@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy import text
 
 from app.database import AsyncSessionLocal
@@ -57,6 +57,14 @@ async def health_check():
     Liveness probe - always returns 200 OK.
     """
     return {"status": "ok"}
+
+
+@app.get("/test", tags=["Test"], response_class=FileResponse)
+async def serve_test_frontend():
+    """
+    Serve the Auth Tester frontend for interactive API testing.
+    """
+    return FileResponse("frontend-test/index.html", media_type="text/html")
 
 
 @app.get("/ready", tags=["Health"])

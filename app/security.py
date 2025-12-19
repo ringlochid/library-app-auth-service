@@ -23,6 +23,7 @@ from app.cache import (
     cache_user_info,
     delete_cached_user_info,
 )
+from app.schemas.user import UserCache
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
@@ -249,16 +250,6 @@ async def get_current_user_with_access_token(
         if any(key not in cached for key in required_keys):
             await delete_cached_user_info(user_id, r)
         else:
-            created_at = (
-                datetime.fromisoformat(cached["created_at"])
-                if cached.get("created_at")
-                else None
-            )
-            updated_at = (
-                datetime.fromisoformat(cached["updated_at"])
-                if cached.get("updated_at")
-                else None
-            )
             email_verified_at = (
                 datetime.fromisoformat(cached["email_verified_at"])
                 if cached.get("email_verified_at")
@@ -301,24 +292,10 @@ async def get_current_user_with_access_token(
                     detail="User is locked",
                 )
 
-            return User(
-                id=user_id,
-                name=cached["name"],
-                email=cached["email"],
-                hashed_password="",
-                is_active=cached["is_active"],
-                is_admin=cached["is_admin"],
-                roles=token_roles or cached.get("roles", []),
-                scopes=token_scopes or cached.get("scopes", []),
-                trust_score=cached.get("trust_score", 0),
-                reputation_percentage=cached.get("reputation_percentage", 0.0),
-                is_blacklisted=cached.get("is_blacklisted", False),
-                is_locked=cached.get("is_locked", False),
-                created_at=created_at,
-                updated_at=updated_at,
-                email_verified_at=email_verified_at,
-                expires_at=expires_at,
-            )
+            cached["roles"] = token_roles or cached.get("roles", [])
+            cached["scopes"] = token_scopes or cached.get("scopes", [])
+            cached_user = UserCache.model_validate(cached)  # Parses datetime strings
+            return User(**dict(cached_user))
 
     stat = select(User).where(User.id == user_id)
     result = await db.execute(stat)
@@ -333,7 +310,7 @@ async def get_current_user_with_access_token(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account expired",
-    )
+        )
     if user.email_verified_at is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -353,29 +330,9 @@ async def get_current_user_with_access_token(
     user.roles = token_roles or user.roles
     user.scopes = token_scopes or user.scopes
 
-    await cache_user_info(
-        user_id,
-        {
-            "id": str(user_id),
-            "name": user.name,
-            "email": user.email,
-            "is_active": user.is_active,
-            "is_admin": user.is_admin,
-            "roles": token_roles or user.roles,
-            "scopes": token_scopes or user.scopes,
-            "trust_score": user.trust_score,
-            "reputation_percentage": user.reputation_percentage,
-            "is_blacklisted": user.is_blacklisted,
-            "is_locked": user.is_locked,
-            "created_at": user.created_at.isoformat() if user.created_at else "",
-            "updated_at": user.updated_at.isoformat() if user.updated_at else "",
-            "email_verified_at": (
-                user.email_verified_at.isoformat() if user.email_verified_at else ""
-            ),
-            "expires_at": user.expires_at.isoformat() if user.expires_at else "",
-        },
-        r,
-    )
+    data = UserCache.model_validate(user).model_dump()
+
+    await cache_user_info(user_id, data, r)
 
     # Return user with roles/scopes sourced from the token
     return user
@@ -390,7 +347,9 @@ async def get_current_user_with_refresh_token(
 
     payload = decode_refresh_token(refresh_token)
     jti = payload["jti"]
-    query = select(RefreshToken).where(RefreshToken.jti == jti, RefreshToken.revoked == False)
+    query = select(RefreshToken).where(
+        RefreshToken.jti == jti, RefreshToken.revoked == False
+    )
     raw = await db.execute(query)
     token_obj = raw.scalar_one_or_none()
     if token_obj is None:

@@ -49,7 +49,7 @@ async def cache_user_info(
     user_id: uuid.UUID, user_data: dict, r: Redis | None = None, ttl: int = DEFAULT_TTL
 ) -> None:
     r = r or await init_redis()
-    payload = json.dumps(user_data, ensure_ascii=False)
+    payload = json.dumps(user_data, ensure_ascii=False, cls=CacheEncoder)
     await r.set(make_user_info_key(user_id), payload, ex=ttl)
 
 

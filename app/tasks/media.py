@@ -209,6 +209,7 @@ async def _persist_avatar_and_bust_cache(
             user = await session.get(User, user_id)
             if user is None:
                 raise MediaProcessingError("User not found for avatar update")
+            user_name = user.name
             old_key = user.avatar_key
             user.avatar_key = final_key
             await session.commit()
@@ -216,6 +217,7 @@ async def _persist_avatar_and_bust_cache(
         # Bust cache
         await redis.delete(make_user_info_key(user_id))
         await redis.delete(make_user_profile_key(user_id, None))
+        await redis.delete(make_user_profile_key(None, user_name))
 
         return old_key
     finally:

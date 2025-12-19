@@ -31,7 +31,8 @@ services:
     command: celery -A app.celery_app beat -l info
 
   clamav:
-    image: clamav/clamav:stable
+    build:
+      context: ./infra/clamav
     container_name: clamav
     environment:
       - CLAMD_STARTUP_TIMEOUT=120000

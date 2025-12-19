@@ -1,11 +1,16 @@
 # Library Auth Service
 
-FastAPI-based authentication service with JWT access/refresh tokens, email verification, rate limiting, Role-Based Access Control (RBAC) with jury system, and Celery-powered email sending.
+FastAPI-based authentication service with JWT access/refresh tokens, email verification, rate limiting, Role-Based Access Control (RBAC) with jury system, avatar processing with ClamAV antivirus scanning, and Celery-powered async tasks.
 
 ## Features
 - **JWT Tokens**: RS256 (RSA) with access/refresh token family for reuse detection and blacklist.
 - **Email Verification**: Hashed verification tokens with expiration and enforced verification on protected routes.
 - **Rate Limiting**: Token bucket algorithm for login/register/refresh/verify operations (per IP/domain/email).
+- **Avatar Processing**: Async image processing with:
+  - Multi-size variant generation (512, 256, 128, 64px)
+  - ClamAV antivirus scanning via TCP (instream)
+  - WebP output format optimization
+  - S3 storage with presigned uploads
 - **Jury-Based RBAC (Phase 1)**: 6-tier role system with weighted voting and auto-promotion:
   - **Blacklisted**: Read-only (manual enforcement)
   - **User** (default): Draft submission and personal collections
@@ -23,8 +28,12 @@ FastAPI-based authentication service with JWT access/refresh tokens, email verif
 - **Session Management (Phase 5)**: Track active sessions with device info, last usage timestamps, and session revocation
 - **Health Endpoints (Phase 6)**: `/health` (liveness) and `/ready` (readiness with dependency checks) for AWS App Runner
 - **Redis Caching**: User info and token blacklist with TTL.
-- **Celery Worker**: Async email sending with retry logic (Mailtrap/SMTP by default).
+- **Celery Worker**: Async email sending, avatar processing, and role upgrades with retry logic.
 - **Celery Beat**: Periodic cleanup of expired unverified users (daily schedule).
+
+## Documentation
+
+- [Debug Report (Dec 2025)](docs/DEBUG_REPORT_DEC_2025.md) - Detailed debugging walkthrough for ClamAV integration and related fixes
 
 ## Requirements
 - Python 3.11+

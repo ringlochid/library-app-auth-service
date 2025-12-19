@@ -40,3 +40,5 @@ dmypy.json
 ROADMAP.md
 DOC.md
 .agent/
+DevNotes/
+.agent/workflows/

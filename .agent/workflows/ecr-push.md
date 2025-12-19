@@ -46,6 +46,15 @@ docker tag library-auth-service:latest ${ECR_URI}:latest && \
 docker push ${ECR_URI}:latest
 ```
 
+## ECS
+```bash
+aws ecs update-service \
+  --cluster library-auth-worker-cluster-rl \
+  --service library-auth-service-worker-service-gne5k8x3 \
+  --force-new-deployment \
+  --region ap-southeast-2
+```
+
 ## Notes
 - Make sure the ECR repository exists before pushing
 - Create repo if needed: `aws ecr create-repository --repository-name library-app-auth-service --region ap-southeast-2`
@@ -54,7 +63,18 @@ docker push ${ECR_URI}:latest
 
 ## clamav:
 
+```bash
 cd clamav
 docker build -t clamav-tcp .
 docker tag clamav-tcp:latest 681802564174.dkr.ecr.ap-southeast-2.amazonaws.com/clamav-tcp:latest
 docker push 681802564174.dkr.ecr.ap-southeast-2.amazonaws.com/clamav-tcp:latest
+```
+
+
+```bash
+aws ecs update-service \
+  --cluster library-auth-worker-cluster-rl \
+  --service clamav-service-service-018u4hk3 \
+  --force-new-deployment \
+  --region ap-southeast-2
+```

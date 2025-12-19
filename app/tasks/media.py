@@ -61,21 +61,22 @@ def _clamd_client():
     )
 
 
-def _av_scan(file_path: str) -> None:
+def _av_scan(file_bytes: bytes) -> None:
     """
     Perform an AV scan via clamd if configured.
+    Uses instream() to send bytes over TCP for cross-container scanning.
     Raises MediaProcessingError on detection or scan errors.
     """
     client = _clamd_client()
     if client is None:
         return
     try:
-        result = client.scan(file_path)
+        # Use instream to send bytes over network - required for cross-container
+        result = client.instream(io.BytesIO(file_bytes))
     except Exception as exc:  # pragma: no cover - depends on runtime AV setup
         raise MediaProcessingError(f"AV scan failed: {exc}") from exc
-    if not result:
-        raise MediaProcessingError("AV scan returned no result")
-    status = list(result.values())[0]
+    # instream returns: {'stream': ('OK', None)} or {'stream': ('FOUND', 'Virus.Name')}
+    status = result.get("stream", ("ERROR", "No result from scanner"))
     if status[0] != "OK":
         raise MediaProcessingError(f"AV scan blocked file: {status}")
 
@@ -250,7 +251,10 @@ def process_upload(key: str) -> dict[str, Any]:
     with tempfile.NamedTemporaryFile(suffix=".upload") as tmp:
         s3.download_fileobj(bucket, key, tmp)
         tmp.flush()
-        _av_scan(tmp.name)
+        # Read bytes for instream AV scan (cross-container)
+        tmp.seek(0)
+        file_bytes = tmp.read()
+        _av_scan(file_bytes)
         variants = _transform_image(tmp.name, header_content_type)
 
     output_format = settings.AVATAR_OUTPUT_FORMAT.upper()

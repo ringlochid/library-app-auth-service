@@ -59,6 +59,8 @@ SCOPES = {
 
 # Role to scopes mapping
 ROLE_SCOPES = {
+    # Unverified users - can only manage their own profile
+    "unverified": ["books:read"],
     # The "Blacklisted" - Read only, no interaction.
     "blacklisted": ["books:read"],
     # The "Newbie" - Can submit drafts to pending queue.
@@ -201,6 +203,10 @@ def calculate_user_roles(user: User) -> List[str]:
     # Blacklist check overrides everything
     if hasattr(user, "is_blacklisted") and user.is_blacklisted:
         return ["blacklisted"]
+
+    # Unverified users get restricted role (can only manage profile)
+    if hasattr(user, "email_verified_at") and user.email_verified_at is None:
+        return ["unverified"]
 
     # Locked users are temporarily downgraded to base "user" role
     if hasattr(user, "is_locked") and user.is_locked:

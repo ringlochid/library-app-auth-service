@@ -1,3 +1,4 @@
+from datetime import timedelta
 from app.schemas.trust import SubmissionResponse
 from app.schemas.trust import SubmissionAdjustRequest
 import uuid
@@ -15,12 +16,14 @@ from app.cache import (
     get_cached_user_profile,
     token_bucket_allow,
     make_rate_limit_key,
+    make_user_info_key,
+    make_user_profile_key,
 )
 from app.settings import settings
 from app.models import User
-from app.security import get_current_user_with_access_token
+from app.security import get_current_user_with_access_token, verify_password, _now_utc
 from app.dependencies.service_auth import verify_service_token
-from app.schemas.user import UserExistsResponse, UserProfile, UserRead
+from app.schemas.user import UserExistsResponse, UserProfile, UserRead, UserUpdate
 from app.schemas.trust import (
     TrustAdjustRequest,
     TrustResponse,
@@ -47,6 +50,117 @@ async def who_am_i_admin(user: User = Depends(get_current_user_with_access_token
     if not user.is_admin:
         raise HTTPException(status_code=401, detail="Admins only")
     return user
+
+
+@router.patch("/me/update", response_model=UserRead)
+async def update_user(
+    data: UserUpdate,
+    user: User = Depends(get_current_user_with_access_token),
+    db: AsyncSession = Depends(get_db),
+    r: Redis = Depends(get_redis),
+):
+    allowed, remaining = await token_bucket_allow(
+        make_rate_limit_key("user_update", str(user.id)),
+        capacity=settings.RATE_LIMIT_USER_UPDATE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_USER_UPDATE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_USER_UPDATE_REFILL_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded for user {user.id}. Try again later.",
+        )
+    is_name_changed = False
+    if data.name:
+        query = select(User).where(User.name == data.name)
+        result = await db.execute(query)
+        if result.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Name already exists")
+        old_name = user.name
+        user.name = data.name
+        is_name_changed = True
+    if data.bio is not None:
+        user.bio = data.bio
+    if data.preferences is not None:
+        user.preferences = data.preferences.model_dump() if data.preferences else None
+    await db.commit()
+    await db.refresh(user)
+    await r.delete(make_user_info_key(user.id))
+    await r.delete(make_user_profile_key(user.id, None))
+    if is_name_changed:
+        await r.delete(make_user_profile_key(None, old_name))
+        await r.delete(make_user_profile_key(None, user.name))
+    return user
+
+
+@router.patch("/me/email")
+async def update_email(
+    data: "UserEmailUpdate",
+    user: User = Depends(get_current_user_with_access_token),
+    db: AsyncSession = Depends(get_db),
+    r: Redis = Depends(get_redis),
+):
+    """
+    Change user's email address.
+
+    Flow:
+    1. Verify current password
+    2. Check new email is not taken
+    3. Update email, clear email_verified_at, set expires_at to 24h
+    4. User must verify new email within 24 hours or account expires
+
+    After this, user will have 'unverified' role until they verify.
+    """
+    # Rate limit
+    allowed, _ = await token_bucket_allow(
+        make_rate_limit_key("email_change", str(user.id)),
+        capacity=settings.RATE_LIMIT_USER_UPDATE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_USER_UPDATE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_USER_UPDATE_REFILL_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many email change attempts. Try again later.",
+        )
+
+    # Verify password
+    ok, _ = verify_password(data.password, user.hashed_password)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Invalid password")
+
+    new_email = data.email.lower()
+    if new_email == user.email:
+        raise HTTPException(status_code=400, detail="New email is the same as current")
+
+    existing = await db.execute(select(User).where(User.email == new_email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Email already in use")
+
+    # Update email, clear verification, set expiry
+    user.email = new_email
+    user.email_verified_at = None
+    user.expires_at = _now_utc() + timedelta(days=settings.UNVERIFIED_USER_EXPIRE_DAYS)
+
+    await db.commit()
+    await db.refresh(user)
+
+    # Clear all caches for this user
+    await r.delete(make_user_info_key(user.id))
+    await r.delete(make_user_profile_key(user.id, None))
+    await r.delete(make_user_profile_key(None, user.name))
+
+    return {
+        "message": f"Email changed to {new_email}. Please verify within {settings.UNVERIFIED_USER_EXPIRE_DAYS} days.",
+        "email": new_email,
+        "expires_at": user.expires_at.isoformat() if user.expires_at else None,
+    }
+
+
+# Forward reference for UserEmailUpdate
+from app.schemas.user import UserEmailUpdate
 
 
 @router.post(

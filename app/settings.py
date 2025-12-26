@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     RATE_LIMIT_USER_CHECK_CAPACITY: int = 60
     RATE_LIMIT_USER_CHECK_REFILL_TOKENS: int = 60
     RATE_LIMIT_USER_CHECK_REFILL_PERIOD_SECONDS: int = 60
+    RATE_LIMIT_USER_UPDATE_CAPACITY: int = 3
+    RATE_LIMIT_USER_UPDATE_REFILL_TOKENS: int = 3
+    RATE_LIMIT_USER_UPDATE_REFILL_PERIOD_SECONDS: int = 3600
     EMAIL_VERIFY_BASE_URL: str = "https://localhost:8000/verify-email?token="
     JWT_PRIVATE_KEY_PATH: str = "keys/private_key.pem"
     JWT_PUBLIC_KEY_PATH: str = "keys/public_key.pem"

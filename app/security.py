@@ -273,12 +273,7 @@ async def get_current_user_with_access_token(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Account expired",
                 )
-            if email_verified_at is None:
-                await delete_cached_user_info(user_id, r)
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Email not verified",
-                )
+            # Note: email_verified_at check removed - handled via RBAC 'unverified' role
             if cached.get("is_blacklisted"):
                 await delete_cached_user_info(user_id, r)
                 raise HTTPException(
@@ -311,11 +306,7 @@ async def get_current_user_with_access_token(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account expired",
         )
-    if user.email_verified_at is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Email not verified",
-        )
+    # Note: email_verified_at check removed - handled via RBAC 'unverified' role
     if user.is_blacklisted:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

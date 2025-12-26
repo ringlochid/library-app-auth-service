@@ -60,9 +60,7 @@ class TestTrustScoreAdjustment:
         assert user.trust_score == 60
 
     @pytest.mark.asyncio
-    async def test_negative_adjustment_decreases_trust(
-        self, db_session: AsyncSession
-    ):
+    async def test_negative_adjustment_decreases_trust(self, db_session: AsyncSession):
         """Negative delta decreases trust score"""
         name, email = unique_user_data()
         user = User(
@@ -317,6 +315,7 @@ class TestDelayedRoleUpgrade:
             trust_score=9,  # Just below contributor threshold
             reputation_percentage=80,
             roles=["user"],
+            email_verified_at=datetime.now(UTC),
         )
         db_session.add(user)
         await db_session.commit()
@@ -348,6 +347,7 @@ class TestDelayedRoleUpgrade:
             reputation_percentage=80,
             roles=["user", "contributor"],
             pending_role_upgrade={"roles": ["user", "contributor", "trusted"]},
+            email_verified_at=datetime.now(UTC),
         )
         db_session.add(user)
         await db_session.commit()
@@ -377,6 +377,7 @@ class TestImmediateRoleDowngrade:
             reputation_percentage=80,
             roles=["user", "contributor"],
             pending_role_upgrade={"roles": ["user", "contributor", "trusted"]},
+            email_verified_at=datetime.now(UTC),
         )
         db_session.add(user)
         await db_session.commit()
@@ -409,6 +410,7 @@ class TestLockedUserRoleDowngrade:
             reputation_percentage=90,
             is_locked=True,
             locked_at=datetime.now(UTC),
+            email_verified_at=datetime.now(UTC),
         )
         db_session.add(user)
         await db_session.commit()
@@ -430,6 +432,7 @@ class TestLockedUserRoleDowngrade:
             trust_score=80,
             reputation_percentage=90,
             is_locked=False,
+            email_verified_at=datetime.now(UTC),
         )
         db_session.add(user)
         await db_session.commit()
@@ -469,9 +472,7 @@ class TestTrustHistoryRetrieval:
             )
 
         # Get first 3 entries
-        items, total = await get_trust_history(
-            db_session, user.id, limit=3, offset=0
-        )
+        items, total = await get_trust_history(db_session, user.id, limit=3, offset=0)
 
         assert total == 5
         assert len(items) == 3
@@ -503,9 +504,7 @@ class TestTrustHistoryRetrieval:
             )
 
         # Get entries 3-4 (offset=2, limit=2)
-        items, total = await get_trust_history(
-            db_session, user.id, limit=2, offset=2
-        )
+        items, total = await get_trust_history(db_session, user.id, limit=2, offset=2)
 
         assert total == 5
         assert len(items) == 2

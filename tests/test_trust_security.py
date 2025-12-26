@@ -78,6 +78,7 @@ class TestAccessTokenBlacklisting:
             hashed_password="fake",
             trust_score=9,
             reputation_percentage=100,
+            email_verified_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
         await db_session.commit()
@@ -114,6 +115,7 @@ class TestAccessTokenBlacklisting:
             hashed_password="fake",
             trust_score=50,
             reputation_percentage=100,
+            email_verified_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
         await db_session.commit()
@@ -152,6 +154,7 @@ class TestAccessTokenBlacklisting:
             hashed_password="fake",
             trust_score=20,
             reputation_percentage=100,
+            email_verified_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
         await db_session.commit()
@@ -171,7 +174,9 @@ class TestAccessTokenBlacklisting:
         # Verify token is NOT blacklisted
         bl_key = make_access_blacklist_key(jti)
         is_blacklisted = await check_access_in_bl(bl_key, r)
-        assert not is_blacklisted, "Token should NOT be blacklisted when roles unchanged"
+        assert (
+            not is_blacklisted
+        ), "Token should NOT be blacklisted when roles unchanged"
 
     @pytest.mark.asyncio
     async def test_blacklist_ttl_matches_token_expiry(self, db_session: AsyncSession):
@@ -183,6 +188,7 @@ class TestAccessTokenBlacklisting:
             hashed_password="fake",
             trust_score=9,
             reputation_percentage=100,
+            email_verified_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
         await db_session.commit()
@@ -215,6 +221,7 @@ class TestAccessTokenBlacklisting:
             hashed_password="fake",
             trust_score=9,
             reputation_percentage=100,
+            email_verified_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
         await db_session.commit()
@@ -278,7 +285,9 @@ class TestUserCacheInvalidation:
 
         # Verify cache is cleared
         cached_after = await get_cached_user(user.id, r)
-        assert cached_after is None, "User cache should be cleared after trust adjustment"
+        assert (
+            cached_after is None
+        ), "User cache should be cleared after trust adjustment"
 
     @pytest.mark.asyncio
     async def test_cache_cleared_even_without_role_change(
@@ -350,9 +359,7 @@ class TestTrustAdjustmentWithRedis:
     """Test trust adjustment works with Redis parameter"""
 
     @pytest.mark.asyncio
-    async def test_trust_adjustment_works_without_redis(
-        self, db_session: AsyncSession
-    ):
+    async def test_trust_adjustment_works_without_redis(self, db_session: AsyncSession):
         """Trust adjustment still works when Redis is None"""
         name, email = unique_user_data()
         user = User(
@@ -390,6 +397,7 @@ class TestTrustAdjustmentWithRedis:
             hashed_password="fake",
             trust_score=9,
             reputation_percentage=100,
+            email_verified_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
         await db_session.commit()

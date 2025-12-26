@@ -1,3 +1,4 @@
+from typing import Literal
 from datetime import datetime
 import uuid
 import re
@@ -224,3 +225,99 @@ class AvatarUploadResponse(BaseModel):
 
 class AvatarCommitRequest(BaseModel):
     key: str
+
+
+class UserPreferences(BaseModel):
+    """User preference schema stored as JSONB."""
+
+    # UI/Theme
+    theme: Literal["light", "dark", "system"] = "system"
+
+    # Content Filtering (affects book search)
+    book_exclude_tags: list[str] = []  # Hide books with these tags
+    book_include_tags: list[str] = []  # Prioritize books with these tags
+
+    # Book Search Defaults
+    book_search_default_sort: Literal[
+        "similarity",
+        "title",
+        "year",
+        "average_rating",
+        "view_count",
+        "trending_score",
+        "subscriber_count",
+    ] = "similarity"
+
+    # Book Browse Defaults
+    book_browse_default_sort: Literal[
+        "title",
+        "year",
+        "average_rating",
+        "view_count",
+        "trending_score",
+        "subscriber_count",
+    ] = "trending_score"
+
+    # Collection Search Defaults
+    collection_search_default_sort: Literal[
+        "similarity",
+        "view_count",
+        "trending_score",
+        "subscriber_count",
+        "name",
+    ] = "similarity"
+
+    # Collection Browse Defaults
+    collection_browse_default_sort: Literal[
+        "view_count",
+        "trending_score",
+        "subscriber_count",
+        "name",
+    ] = "trending_score"
+
+
+class UserUpdate(BaseModel):
+    name: str | None = None
+    bio: str | None = None
+    preferences: UserPreferences | None = None
+
+    @field_validator("name")
+    def validate_name(cls, v: str) -> str:
+        """
+        Enforce a basic name policy:
+        - 2 - 30 characters
+        - start with a letter
+        - then letters/digits/underscore/dots/hyphens
+        """
+        if len(v) < 2 or len(v) > 30:
+            raise ValueError("Name must be between 2 and 30 characters long")
+        pattern = re.compile(r"^[A-Za-z][A-Za-z0-9_\.\-]{1,29}$")
+        if not pattern.match(v):
+            raise ValueError(
+                "Name must start with a letter and contain only letters, digits, underscores, dots, and hyphens"
+            )
+        return v.strip()
+
+
+class UserEmailUpdate(EmailBase):
+    """Request to change user's email address. Requires password confirmation."""
+
+    password: str
+
+
+class UserPasswordUpdate(BaseModel):
+    password: str
+
+    @field_validator("password")
+    def validate_password(cls, v: str) -> str:
+        """
+        Enforce a basic strong password policy:
+        - at least 8 characters
+        - at least one lowercase, one uppercase, one digit, and one symbol
+        """
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters long")
+        pattern = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$")
+        if not pattern.match(v):
+            raise ValueError("Password must include upper, lower, digit, and symbol")
+        return v.strip()

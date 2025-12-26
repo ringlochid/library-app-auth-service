@@ -150,8 +150,7 @@ async def user_login(
     if not ok:
         raise HTTPException(status_code=401, detail="Password incorrect")
 
-    if not curr_user.email_verified_at:
-        raise HTTPException(status_code=403, detail="Email not verified")
+    # Note: email_verified_at check removed - unverified users can login with restricted 'unverified' role
 
     user_mutated = False
     if new_hash is not None:

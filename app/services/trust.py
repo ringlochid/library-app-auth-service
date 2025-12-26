@@ -1,6 +1,7 @@
 """
 Trust score management and reputation calculation services.
 """
+
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Literal
@@ -39,7 +40,7 @@ async def adjust_trust_score(
 ) -> User:
     """
     Adjust user's trust score and handle role changes.
-    
+
     Args:
         db: Database session
         user_id: UUID of the user
@@ -47,10 +48,10 @@ async def adjust_trust_score(
         reason: Human-readable reason for the adjustment
         source: Source of the adjustment (manual, upload, review, social, auto_blacklist)
         r: Redis connection for cache invalidation and token blacklisting
-        
+
     Returns:
         Updated User object
-        
+
     Side effects:
         - Creates TrustHistory record
         - Auto-blacklists if trust_score <= 0
@@ -63,16 +64,16 @@ async def adjust_trust_score(
     stmt = select(User).where(User.id == user_id)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
-    
+
     if not user:
         raise ValueError(f"User {user_id} not found")
-    
+
     old_score = user.trust_score
     old_roles = calculate_user_roles(user)
-    
+
     # Calculate new score (enforce >= 0 constraint)
     new_score = max(0, old_score + delta)
-    
+
     # Record history
     history_entry = TrustHistory(
         user_id=user_id,
@@ -83,24 +84,31 @@ async def adjust_trust_score(
         new_score=new_score,
     )
     db.add(history_entry)
-    
+
     # Update user trust score
     user.trust_score = new_score
-    
+
     # Auto-blacklist if trust score hits 0
     if new_score == 0 and not user.is_blacklisted:
         user.is_blacklisted = True
         # Clear any pending upgrades
         user.pending_role_upgrade = None
-    
+
     # Recalculate roles
     new_roles = calculate_user_roles(user)
-    
+
     # Handle role changes
     if new_roles != old_roles:
         # Check if this is an upgrade or downgrade
-        role_hierarchy = ["blacklisted", "user", "contributor", "trusted", "curator", "admin"]
-        
+        role_hierarchy = [
+            "blacklisted",
+            "user",
+            "contributor",
+            "trusted",
+            "curator",
+            "admin",
+        ]
+
         def get_max_role_level(roles: list[str]) -> int:
             """Get highest role level from role list."""
             max_level = 0
@@ -108,21 +116,23 @@ async def adjust_trust_score(
                 if role in role_hierarchy:
                     max_level = max(max_level, role_hierarchy.index(role))
             return max_level
-        
+
         old_level = get_max_role_level(old_roles)
         new_level = get_max_role_level(new_roles)
-        
+
         if new_level > old_level and not user.is_blacklisted:
             # UPGRADE: Schedule delayed upgrade (15 minutes)
             from app.tasks.roles import process_role_upgrade
-            
-            scheduled_at = _now_utc() + timedelta(seconds=settings.ROLE_UPGRADE_DELAY_SECONDS)
+
+            scheduled_at = _now_utc() + timedelta(
+                seconds=settings.ROLE_UPGRADE_DELAY_SECONDS
+            )
             user.pending_role_upgrade = {
                 "target_roles": new_roles,
                 "scheduled_at": scheduled_at.isoformat(),
                 "reason": f"trust_score={new_score}, reputation={user.reputation_percentage}%",
             }
-            
+
             # Schedule Celery task
             process_role_upgrade.apply_async(
                 args=[str(user_id), new_roles],
@@ -132,7 +142,7 @@ async def adjust_trust_score(
             # DOWNGRADE: Apply immediately
             user.pending_role_upgrade = None
             user.roles = new_roles  # Apply new roles immediately
-        
+
         # Roles changed (upgrade or downgrade) - blacklist current access token
         if r is not None:
             access_key = make_access_key(user_id)
@@ -146,10 +156,10 @@ async def adjust_trust_score(
                     ttl = max(exp_ts - now_ts, 1)
                     bl_key = make_access_blacklist_key(jti)
                     await cache_access_to_bl(bl_key, r, ttl)
-    
+
     await db.commit()
     await db.refresh(user)
-    
+
     # Always invalidate user cache after trust adjustment
     if r is not None:
         await delete_cached_user_info(user_id, r)
@@ -157,38 +167,50 @@ async def adjust_trust_score(
         await delete_cached_user_existence(None, user.name, r)
         await delete_cached_user_profile(user_id, None, r)
         await delete_cached_user_profile(None, user.name, r)
-    
+
     return user
 
 
-async def recalculate_reputation(db: AsyncSession, user_id: uuid.UUID) -> float:
+async def recalculate_reputation(
+    db: AsyncSession,
+    user_id: uuid.UUID | None = None,
+    user: User | None = None,
+) -> User:
     """
     Recalculate reputation percentage using Laplace smoothing formula.
-    
+
     Formula: reputation = ((3 + successful) / (3 + total)) * 100
-    
+
     Args:
         db: Database session
-        user_id: UUID of the user
-        
+        user_id: UUID of the user (optional if user provided)
+        user: User object (optional, avoids DB query if already loaded)
+
     Returns:
-        New reputation percentage (0-100)
+        Updated User object with new reputation_percentage
+
+    Raises:
+        ValueError: If neither user nor user_id provided, or user not found
     """
-    stmt = select(User).where(User.id == user_id)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
-    
-    if not user:
-        raise ValueError(f"User {user_id} not found")
-    
+    if user is None:
+        if user_id is None:
+            raise ValueError("Either user_id or user must be provided")
+        stmt = select(User).where(User.id == user_id)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+        if not user:
+            raise ValueError(f"User {user_id} not found")
+
     # Laplace smoothing: prevents harsh penalties for new users
-    reputation = ((3 + user.successful_submissions) / (3 + user.total_submissions)) * 100
-    
+    reputation = (
+        (3 + user.successful_submissions) / (3 + user.total_submissions)
+    ) * 100
+
     user.reputation_percentage = round(reputation, 2)
     await db.commit()
     await db.refresh(user)
-    
-    return user.reputation_percentage
+
+    return user
 
 
 async def record_submission_outcome(
@@ -198,34 +220,36 @@ async def record_submission_outcome(
 ) -> float:
     """
     Record a content submission outcome and recalculate reputation.
-    
+
     Args:
         db: Database session
         user_id: UUID of the user
         success: True if submission was approved, False if rejected
-        
+
     Returns:
         New reputation percentage
     """
     stmt = select(User).where(User.id == user_id)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
-    
+
     if not user:
         raise ValueError(f"User {user_id} not found")
-    
+
     # Increment counters
     user.total_submissions += 1
     if success:
         user.successful_submissions += 1
-    
+
     # Recalculate reputation
-    reputation = ((3 + user.successful_submissions) / (3 + user.total_submissions)) * 100
+    reputation = (
+        (3 + user.successful_submissions) / (3 + user.total_submissions)
+    ) * 100
     user.reputation_percentage = round(reputation, 2)
-    
+
     await db.commit()
     await db.refresh(user)
-    
+
     return user.reputation_percentage
 
 
@@ -237,22 +261,27 @@ async def get_trust_history(
 ) -> tuple[list[TrustHistory], int]:
     """
     Retrieve paginated trust history for a user.
-    
+
     Args:
         db: Database session
         user_id: UUID of the user
         limit: Maximum number of records to return
         offset: Number of records to skip
-        
+
     Returns:
         Tuple of (list of TrustHistory records, total count)
     """
     # Get total count
     from sqlalchemy import func
-    count_stmt = select(func.count()).select_from(TrustHistory).where(TrustHistory.user_id == user_id)
+
+    count_stmt = (
+        select(func.count())
+        .select_from(TrustHistory)
+        .where(TrustHistory.user_id == user_id)
+    )
     count_result = await db.execute(count_stmt)
     total = count_result.scalar_one()
-    
+
     # Get paginated items
     stmt = (
         select(TrustHistory)
@@ -263,5 +292,5 @@ async def get_trust_history(
     )
     result = await db.execute(stmt)
     items = list(result.scalars().all())
-    
+
     return items, total

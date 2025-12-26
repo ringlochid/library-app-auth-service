@@ -31,11 +31,11 @@ class TestReportSubmission:
                 "content_type": "book",
                 "content_id": 123,
                 "edit_id": 456,
-                "action": "update",
+                "action": "UPDATE",
                 "actor_id": str(uuid.uuid4())
             },
             "reason": "This edit introduced spam links and promotional content.",
-            "category": "spam"
+            "category": "SPAM"
         }
         
         response = await async_client.post(
@@ -46,8 +46,8 @@ class TestReportSubmission:
         
         assert response.status_code == 201
         data = response.json()
-        assert data["status"] == "pending"
-        assert data["category"] == "spam"
+        assert data["status"] == "PENDING"
+        assert data["category"] == "SPAM"
         assert data["reason"] == report["reason"]
         assert data["target"]["edit_id"] == 456
     
@@ -63,11 +63,11 @@ class TestReportSubmission:
                 "content_type": "book",
                 "content_id": 123,
                 "edit_id": 456,
-                "action": "update",
+                "action": "UPDATE",
                 "actor_id": str(uuid.uuid4())
             },
             "reason": "This edit introduced spam links.",
-            "category": "spam"
+            "category": "SPAM"
         }
         
         response = await async_client.post(
@@ -112,11 +112,11 @@ class TestReportSubmission:
                 "content_type": "book",
                 "content_id": 123,
                 "edit_id": 456,
-                "action": "update",
+                "action": "UPDATE",
                 "actor_id": str(uuid.uuid4())
             },
             "reason": "This edit introduced spam links.",
-            "category": "spam"
+            "category": "SPAM"
         }
         
         response = await async_client.post(
@@ -141,11 +141,11 @@ class TestReportSubmission:
                 "content_type": "book",
                 "content_id": 123,
                 "edit_id": 789,
-                "action": "delete",
+                "action": "DELETE",
                 "actor_id": actor_id
             },
             "reason": "This deletion was malicious and removed valid content.",
-            "category": "vandalism"
+            "category": "VANDALISM"
         }
         
         # First submission succeeds (no auth header needed - user injected via dependency override)
@@ -218,11 +218,11 @@ class TestAutoLock:
                     "content_type": "book",
                     "content_id": 100,
                     "edit_id": 200 + i,  # Different edit for each
-                    "action": "update",
+                    "action": "UPDATE",
                     "actor_id": str(actor.id)
                 },
                 "reason": f"This edit #{i} introduced spam content.",
-                "category": "spam"
+                "category": "SPAM"
             }
             
             response = await async_client.post(
@@ -287,11 +287,11 @@ class TestAutoLock:
                     "content_type": "book",
                     "content_id": 101,
                     "edit_id": 300 + i,
-                    "action": "update",
+                    "action": "UPDATE",
                     "actor_id": str(actor.id)
                 },
                 "reason": f"Report #{i} about spam.",
-                "category": "spam"
+                "category": "SPAM"
             }
             
             response = await async_client.post(
@@ -362,11 +362,11 @@ class TestAutoLock:
                     "content_type": "book",
                     "content_id": 102,
                     "edit_id": 400 + i,
-                    "action": "update",
+                    "action": "UPDATE",
                     "actor_id": str(actor.id)
                 },
                 "reason": f"Report #{i}.",
-                "category": "spam"
+                "category": "SPAM"
             }
             
             response = await client.post(
@@ -381,7 +381,7 @@ class TestAutoLock:
         for report_id in report_ids[:10]:
             response = await client.post(
                 f"/reports/{report_id}/review",
-                json={"action": "reject", "notes": "False report"}
+                json={"action": "REJECT", "notes": "False report"}
             )
             assert response.status_code == 200
         
@@ -409,11 +409,11 @@ class TestAdminReview:
                 "content_type": "book",
                 "content_id": 200,
                 "edit_id": 500,
-                "action": "update",
+                "action": "UPDATE",
                 "actor_id": actor_id
             },
             "reason": "Spam content.",
-            "category": "spam"
+            "category": "SPAM"
         }
         
         submit_response = await async_client.post(
@@ -425,7 +425,7 @@ class TestAdminReview:
         report_id = submit_response.json()["id"]
         
         # Admin approves
-        review = {"action": "approve", "notes": "Confirmed spam"}
+        review = {"action": "APPROVE", "notes": "Confirmed spam"}
         review_response = await async_client.post(
             f"/reports/{report_id}/review",
             json=review,
@@ -434,7 +434,7 @@ class TestAdminReview:
         
         assert review_response.status_code == 200
         data = review_response.json()
-        assert data["status"] == "approved"
+        assert data["status"] == "APPROVED"
         assert data["review_notes"] == "Confirmed spam"
         assert data["reviewed_by"] is not None
         assert data["reviewed_at"] is not None
@@ -454,11 +454,11 @@ class TestAdminReview:
                 "content_type": "book",
                 "content_id": 201,
                 "edit_id": 501,
-                "action": "update",
+                "action": "UPDATE",
                 "actor_id": actor_id
             },
             "reason": "False accusation.",
-            "category": "spam"
+            "category": "SPAM"
         }
         
         submit_response = await async_client.post(
@@ -469,7 +469,7 @@ class TestAdminReview:
         report_id = submit_response.json()["id"]
         
         # Admin rejects
-        review = {"action": "reject", "notes": "No evidence of spam"}
+        review = {"action": "REJECT", "notes": "No evidence of spam"}
         review_response = await async_client.post(
             f"/reports/{report_id}/review",
             json=review,
@@ -478,7 +478,7 @@ class TestAdminReview:
         
         assert review_response.status_code == 200
         data = review_response.json()
-        assert data["status"] == "rejected"
+        assert data["status"] == "REJECTED"
         assert data["review_notes"] == "No evidence of spam"
     
     @pytest.mark.asyncio
@@ -497,11 +497,11 @@ class TestAdminReview:
                 "content_type": "book",
                 "content_id": 202,
                 "edit_id": 502,
-                "action": "update",
+                "action": "UPDATE",
                 "actor_id": actor_id
             },
             "reason": "This is spam content.",
-            "category": "spam"
+            "category": "SPAM"
         }
         
         # Submit report as contributor (no auth header needed)
@@ -513,7 +513,7 @@ class TestAdminReview:
         report_id = submit_response.json()["id"]
         
         # First review as admin (no auth header needed)
-        review1 = {"action": "approve", "notes": "Confirmed"}
+        review1 = {"action": "APPROVE", "notes": "Confirmed"}
         response1 = await admin_client.post(
             f"/reports/{report_id}/review",
             json=review1
@@ -521,7 +521,7 @@ class TestAdminReview:
         assert response1.status_code == 200
         
         # Second review fails
-        review2 = {"action": "reject", "notes": "Changed mind"}
+        review2 = {"action": "REJECT", "notes": "Changed mind"}
         response2 = await admin_client.post(
             f"/reports/{report_id}/review",
             json=review2

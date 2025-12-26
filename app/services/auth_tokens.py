@@ -21,7 +21,7 @@ async def reuse_detection(
     jti: str,
     family_id: uuid.UUID,
     db: AsyncSession,
-    r: Redis = Depends(get_redis),
+    r: Redis,
 ) -> RefreshToken:
     tokens = (
         (

@@ -1,9 +1,9 @@
 from datetime import datetime
-import email
 import uuid
 import re
 from pydantic import BaseModel, ConfigDict, field_validator, computed_field
 from app.settings import settings
+from app.schemas.shared import EmailBase
 
 
 class UserLogIn(BaseModel):
@@ -12,9 +12,25 @@ class UserLogIn(BaseModel):
     password: str
 
 
-class UserBase(BaseModel):
+class UserBase(EmailBase):
     name: str
-    email: str
+
+    @field_validator("name")
+    def validate_name(cls, v: str) -> str:
+        """
+        Enforce a basic name policy:
+        - 2 - 30 characters
+        - start with a letter
+        - then letters/digits/underscore/dots/hyphens
+        """
+        if len(v) < 2 or len(v) > 30:
+            raise ValueError("Name must be between 2 and 30 characters long")
+        pattern = re.compile(r"^[A-Za-z][A-Za-z0-9_\.\-]{1,29}$")
+        if not pattern.match(v):
+            raise ValueError(
+                "Name must start with a letter and contain only letters, digits, underscores, dots, and hyphens"
+            )
+        return v.strip()
 
 
 class UserCreate(UserBase):

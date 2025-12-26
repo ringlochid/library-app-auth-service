@@ -108,6 +108,14 @@ class User(Base):
     )
 
     __table_args__ = (
+        # add constriants on name and email, align with the schema's regex
+        CheckConstraint(
+            "name ~ '^[A-Za-z][A-Za-z0-9_\.\-]{1,29}$'", name="ck_users_name_regex"
+        ),
+        CheckConstraint(
+            "email ~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$'",
+            name="ck_users_email_regex",
+        ),
         CheckConstraint("jsonb_typeof(scopes) = 'array'", name="ck_users_scopes_array"),
         CheckConstraint("jsonb_typeof(roles) = 'array'", name="ck_users_roles_array"),
         CheckConstraint("trust_score >= 0", name="ck_users_trust_score_positive"),
@@ -226,7 +234,7 @@ class ContentReport(Base):
     """
     Track content abuse reports for jury oversight.
 
-    Reports target specific edit actions (create/update/delete/publish) from Library Service.
+    Reports target specific edit actions (create/update/delete/approve/reject/recover) from Library Service.
     Only approved/pending reports count toward auto-lock threshold (10+ distinct trusted reporters).
     """
 
@@ -248,7 +256,7 @@ class ContentReport(Base):
 
     # Admin review
     status: Mapped[str] = mapped_column(
-        String(20), nullable=False, server_default=text("'pending'")
+        String(20), nullable=False, server_default=text("'PENDING'")
     )
     reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
@@ -280,6 +288,6 @@ class ContentReport(Base):
             reporter_id,
             text("(target->>'edit_id')"),
             unique=True,
-            postgresql_where=text("status IN ('pending', 'approved')"),
+            postgresql_where=text("status IN ('PENDING', 'APPROVED')"),
         ),
     )

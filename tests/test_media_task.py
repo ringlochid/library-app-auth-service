@@ -59,7 +59,7 @@ def test_process_upload_promotes_and_updates_user(monkeypatch):
         async with TestSessionLocal() as session:
             user = User(
                 id=user_id,
-                name=f"user-{user_id}",
+                name=f"testuser{str(user_id)[:8]}",
                 email=f"{user_id}@example.com",
                 hashed_password="x",
             )
@@ -149,7 +149,7 @@ def test_process_upload_handles_portrait_and_alpha(monkeypatch):
         async with TestSessionLocal() as session:
             user = User(
                 id=user_id,
-                name=f"user-{user_id}",
+                name=f"testuser{str(user_id)[:8]}",
                 email=f"{user_id}@example.com",
                 hashed_password="x",
             )

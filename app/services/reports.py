@@ -48,7 +48,7 @@ async def check_auto_lock(
         .join(User, User.id == ContentReport.reporter_id)
         .where(
             ContentReport.target["actor_id"].as_string() == str(actor_id),
-            ContentReport.status.in_(["pending", "approved"]),
+            ContentReport.status.in_(["PENDING", "APPROVED"]),
             User.trust_score >= 50  # Trusted reporters only
         )
     )

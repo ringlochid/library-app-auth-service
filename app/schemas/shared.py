@@ -7,14 +7,8 @@ class EmailBase(BaseModel):
 
     @field_validator("email")
     def validate_email(cls, v: str) -> str:
-        """
-        Basic email validation:
-        - trim spaces
-        - ensure simple local@domain.tld shape
-        - normalize to lowercase
-        """
         cleaned = v.strip().lower()
-        pattern = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+        pattern = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
         if not pattern.match(cleaned):
             raise ValueError("Invalid email format")
         return cleaned

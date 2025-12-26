@@ -1,3 +1,5 @@
+from app.schemas.trust import SubmissionResponse
+from app.schemas.trust import SubmissionAdjustRequest
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +27,11 @@ from app.schemas.trust import (
     TrustHistoryResponse,
     TrustHistoryItem,
 )
-from app.services.trust import adjust_trust_score, get_trust_history
+from app.services.trust import (
+    adjust_trust_score,
+    get_trust_history,
+    recalculate_reputation,
+)
 from app.rbac import calculate_user_roles
 
 router = APIRouter(prefix="/user", tags=["user services"])
@@ -41,6 +47,60 @@ async def who_am_i_admin(user: User = Depends(get_current_user_with_access_token
     if not user.is_admin:
         raise HTTPException(status_code=401, detail="Admins only")
     return user
+
+
+@router.post(
+    "/admin/users/{user_id}/submissions/adjust", response_model=SubmissionResponse
+)
+async def adjust_user_submissions(
+    user_id: uuid.UUID,
+    payload: SubmissionAdjustRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    r: Redis = Depends(get_redis),
+    _service_auth: None = Depends(verify_service_token),
+):
+    """
+    Adjust a user's total_submissions and successful_submissions (admin/service only).
+    """
+    allowed, remaining = await token_bucket_allow(
+        make_rate_limit_key("submission_adjust", str(user_id)),
+        capacity=settings.RATE_LIMIT_SUBMISSION_ADJUST_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SUBMISSION_ADJUST_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SUBMISSION_ADJUST_REFILL_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded for user {user_id}. Try again later.",
+        )
+    query = select(User).where(User.id == user_id)
+    result = await db.execute(query)
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.total_submissions = max(0, user.total_submissions + payload.total_delta)
+    user.successful_submissions = max(
+        0, user.successful_submissions + payload.successful_delta
+    )
+
+    try:
+        # Pass user object to avoid redundant DB query
+        updated_user = await recalculate_reputation(db=db, user=user)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return SubmissionResponse(
+        user_id=updated_user.id,
+        trust_score=updated_user.trust_score,
+        reputation_percentage=updated_user.reputation_percentage,
+        roles=calculate_user_roles(updated_user),
+        pending_upgrade=updated_user.pending_role_upgrade,
+        is_blacklisted=updated_user.is_blacklisted,
+        is_locked=updated_user.is_locked,
+    )
 
 
 @router.post("/admin/users/{user_id}/trust/adjust", response_model=TrustResponse)

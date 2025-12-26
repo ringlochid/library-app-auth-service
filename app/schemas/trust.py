@@ -23,18 +23,43 @@ class TrustAdjustRequest(BaseModel):
     )
 
 
-class TrustResponse(BaseModel):
-    """Response containing user's trust and reputation information."""
+class SubmissionAdjustRequest(BaseModel):
+    """Request to adjust a submission's trust score."""
 
+    total_delta: int = Field(
+        ..., description="Change in total submission count (can be negative)"
+    )
+    successful_delta: int = Field(
+        ..., description="Change in successful submission count (can be negative)"
+    )
+
+    reason: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+        description="Human-readable reason for adjustment",
+    )
+    source: Literal["manual", "upload", "review", "social", "auto_blacklist"] = Field(
+        default="manual", description="Source of the trust adjustment"
+    )
+
+
+class BaseTrustInfo(BaseModel):
     user_id: uuid.UUID
     trust_score: int
     reputation_percentage: float
     roles: list[str]
-    pending_upgrade: dict | None = Field(
-        None, description="Details of pending role upgrade (if any)"
-    )
+    pending_upgrade: dict | None = Field(None)
     is_blacklisted: bool
     is_locked: bool
+
+
+class TrustResponse(BaseTrustInfo):
+    pass
+
+
+class SubmissionResponse(BaseTrustInfo):
+    pass
 
 
 class TrustHistoryItem(BaseModel):

@@ -33,19 +33,24 @@ SCOPES = {
     "collections:update_own": "Edit own collections",
     "collections:delete_own": "Delete own collections",
     # --- LEVEL 3: WIKI & JURY (Contributor) ---
-    "books:edit_public_meta": "Edit title/tags/desc of ANY book (Wiki Mode)",
-    "authors:edit_public_meta": "Edit any author metadata (Wiki Mode)",
     "jury:view": "Access the Review Queue",
     "jury:vote": "Cast weighted vote on pending content (+1 for contributor)",
     "reports:create": "Flag content for removal",
     # --- LEVEL 4: TRUSTED PRIVILEGES ---
+    # CHANGE: move edit_public_meta to trusted roles
+    "books:edit_public_meta": "Edit title/tags/desc of ANY book (Wiki Mode)",
+    "authors:edit_public_meta": "Edit any author metadata (Wiki Mode)",
+    # Publish direct
     "books:publish_direct": "Uploads go LIVE immediately (Bypass Jury)",
     "books:replace_file": "Replace the PDF/EPUB file of ANY book (Version Control)",
     "authors:publish_direct": "Author profiles go live immediately",
+    # ADD collections:publish_direct to trusted roles
+    "collections:publish_direct": "Collections go live immediately",
+    # CHANGE: Move collections:manage_any to trusted roles
+    "collections:manage_any": "Curate any collection",
     "jury:vote_weighted": "Cast +5 weighted vote (Trusted users)",
     # --- LEVEL 5: CURATION & ENFORCEMENT ---
     "jury:override": "Instant Approve/Reject power (Curator override)",
-    "collections:manage_any": "Curate any collection",
     "users:ban": "Ban malicious users",
     "content:takedown": "Hard removal (DMCA/Illegal content)",
     # --- ADMIN ---
@@ -89,8 +94,6 @@ ROLE_SCOPES = {
         "collections:delete_own",
         "reports:create",
         # New Powers
-        "books:edit_public_meta",  # Wiki editing
-        "authors:edit_public_meta",  # Wiki editing for authors
         "jury:view",  # Access review queue
         "jury:vote",  # Vote weight = +1
     ],
@@ -110,11 +113,14 @@ ROLE_SCOPES = {
         "collections:update_own",
         "collections:delete_own",
         "reports:create",
-        "books:edit_public_meta",
-        "authors:edit_public_meta",
         "jury:view",
         "jury:vote",
+        # Changed
         # New Powers
+        "books:edit_public_meta",  # Wiki editing
+        "authors:edit_public_meta",  # Wiki editing for authors
+        "collections:manage_any",  # Curate featured collections
+        "collections:publish_direct",  # Collections bypass queue
         "books:publish_direct",  # Bypass queue
         "books:replace_file",  # Fix broken files
         "authors:publish_direct",  # Authors bypass queue
@@ -135,6 +141,8 @@ ROLE_SCOPES = {
         "collections:create",
         "collections:update_own",
         "collections:delete_own",
+        "collections:manage_any",  # Curate featured collections
+        "collections:publish_direct",  # Collections bypass queue
         "reports:create",
         "books:edit_public_meta",
         "authors:edit_public_meta",
@@ -146,7 +154,6 @@ ROLE_SCOPES = {
         "jury:vote_weighted",
         # New Powers
         "jury:override",  # Instant approve/reject
-        "collections:manage_any",  # Curate featured collections
         "users:ban",  # Ban trolls
         "content:takedown",  # DMCA/illegal removal
     ],

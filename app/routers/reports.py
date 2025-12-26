@@ -54,7 +54,7 @@ async def submit_report(
     stmt = select(ContentReport).where(
         ContentReport.reporter_id == current_user.id,
         ContentReport.target["edit_id"].as_string() == str(request.target.edit_id),
-        ContentReport.status.in_(["pending", "approved"]),
+        ContentReport.status.in_(["PENDING", "APPROVED"]),
     )
     result = await db.execute(stmt)
     existing = result.scalar_one_or_none()
@@ -71,7 +71,7 @@ async def submit_report(
         target=request.target.model_dump(mode="json"),  # Serialize UUIDs to strings
         reason=request.reason,
         category=request.category,
-        status="pending",
+        status="PENDING",
     )
     db.add(report)
     await db.commit()
@@ -85,9 +85,9 @@ async def submit_report(
 
 @router.get("", response_model=ReportListResponse)
 async def list_reports(
-    status: str | None = Query(None, pattern="^(pending|approved|rejected)$"),
+    status: str | None = Query(None, pattern="^(PENDING|APPROVED|REJECTED)$"),
     category: str | None = Query(
-        None, pattern="^(spam|inappropriate|vandalism|copyright|other)$"
+        None, pattern="^(SPAM|INAPPROPRIATE|VANDALISM|COPYRIGHT|OTHER)$"
     ),
     actor_id: uuid.UUID | None = None,
     limit: int = Query(50, ge=1, le=100),
@@ -99,8 +99,8 @@ async def list_reports(
     List all reports with filters (admin only).
 
     Filters:
-    - status: pending, approved, or rejected
-    - category: spam, inappropriate, vandalism, copyright, other
+    - status: PENDING, APPROVED, or REJECTED
+    - category: SPAM, INAPPROPRIATE, VANDALISM, COPYRIGHT, or OTHER
     - actor_id: UUID of user being reported
     """
     # Build query
@@ -150,7 +150,7 @@ async def review_report(
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
 
-    if report.status != "pending":
+    if report.status != "PENDING":
         raise HTTPException(
             status_code=409, detail=f"Report already reviewed (status: {report.status})"
         )
@@ -158,7 +158,7 @@ async def review_report(
     # Update report
     from datetime import datetime, timezone
 
-    status_map = {"approve": "approved", "reject": "rejected"}
+    status_map = {"APPROVE": "APPROVED", "REJECT": "REJECTED"}
     report.status = status_map[request.action]
     report.reviewed_by = current_user.id
     report.reviewed_at = datetime.now(timezone.utc)
@@ -168,7 +168,7 @@ async def review_report(
     await db.refresh(report)
 
     # Check auto-lock if approved
-    if request.action == "approve":
+    if request.action == "APPROVE":
         actor_id = uuid.UUID(report.target["actor_id"])
         await check_auto_lock(db, actor_id, admin_id=current_user.id, r=r)
 

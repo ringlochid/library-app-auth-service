@@ -264,6 +264,7 @@ async def reissue_access_token(
         jti=payload["jti"],
         family_id=family_id,
         db=db,
+        r=r,
     )
     old_refresh_token.is_current = False
     # Phase 5: Track last usage before rotating

@@ -1,173 +1,102 @@
-# Library Auth Service
+# OpenShelves Auth Service
 
-FastAPI-based authentication service with JWT access/refresh tokens, email verification, rate limiting, Role-Based Access Control (RBAC) with jury system, avatar processing with ClamAV antivirus scanning, and Celery-powered async tasks.
+> 📘 **Debug Report**: [View ClamAV Integration & Fixes](docs/DEBUG_REPORT_DEC_2025.md)
 
-## 🚀 Live Demo For Test Purpose Only
+Centralized identity and access management (IAM) for the OpenShelves platform. Features JWT-based authentication, RBAC with jury governance, trust scoring, and antivirus-scanned avatar processing.
 
-**Try it now:** [https://enx4hyajcj.ap-southeast-2.awsapprunner.com/test](https://enx4hyajcj.ap-southeast-2.awsapprunner.com/test)
+## 🚀 Live Demo & Testing
+
+**Public Test Environment**: [https://enx4hyajcj.ap-southeast-2.awsapprunner.com/test](https://enx4hyajcj.ap-southeast-2.awsapprunner.com/test)
+
+> 📧 **Bug Reports & Suggestions**: Please email [admin@ringlochid.me](mailto:admin@ringlochid.me)
+
+This interactive test console allows you to explore the full feature set of the Auth Service independently.
 
 ### Testable Features
+*   **Authentication**: Register, Login, Refresh Tokens, and Session Management.
+*   **Identity**: Email verification, Profile management, and Trust Scores.
+*   **Media**: Safe avatar upload with ClamAV integration.
+*   **RBAC**: View Role status and Reputation metrics.
 
-| Tab | Features |
-|-----|----------|
-| 🔑 **Auth** | Register new account, Login with email/username, Refresh tokens, View active sessions |
-| 📧 **Email** | Request verification email, Verify email with token |
-| 🖼️ **Avatar** | Drag & drop upload, Presigned S3 URLs, ClamAV antivirus scan, Multi-size variants (64-512px) |
-| 👤 **Profile** | View your profile, Trust score, Reputation %, Role badge, Email verification status |
-| 🔍 **Lookup** | Search any user by ID or username, View public profiles |
-| 📋 **Logs** | Real-time API response log with status codes and payloads |
+### Public Testing Workflow
+1.  **Register**: Create an account (email verification required for advanced features).
+2.  **Login**: Receive access (memory) and refresh (cookie) tokens.
+3.  **Verify**: Use the simulated email flow to verify your account.
+4.  **Upload Avatar**: Test the secure S3 upload pipeline with virus scanning.
+5.  **Check Trust**: Observe how your Trust Score and Reputation evolve.
 
-### Test Flow
-
-1. **Register** → Creates account (email verification required for protected routes)
-2. **Login** → Receive access token (stored in memory) + refresh token (HTTP-only cookie)
-3. **Verify Email** → Check your inbox for verification link, or paste token manually
-4. **Upload Avatar** → Select image → Upload to S3 → Commit to trigger processing
-5. **View Profile** → See your avatar, role, trust score, and reputation
-6. **Lookup Users** → Search any user's public profile by username or UUID
-
+---
 
 ## Features
-- **JWT Tokens**: RS256 (RSA) with access/refresh token family for reuse detection and blacklist.
-- **Email Verification**: Hashed verification tokens with expiration and enforced verification on protected routes.
-- **Rate Limiting**: Token bucket algorithm for login/register/refresh/verify operations (per IP/domain/email).
-- **Avatar Processing**: Async image processing with:
-  - Multi-size variant generation (512, 256, 128, 64px)
-  - ClamAV antivirus scanning via TCP (instream)
-  - WebP output format optimization
-  - S3 storage with presigned uploads
-- **Jury-Based RBAC (Phase 1)**: 6-tier role system with weighted voting and auto-promotion:
-  - **Blacklisted**: Read-only (manual enforcement)
-  - **User** (default): Draft submission and personal collections
-  - **Contributor** (trust_score ≥10): Wiki editing + jury voting (+1 weight)
-  - **Trusted** (trust_score ≥50 + reputation ≥80%): Bypass queue + weighted voting (+5 weight)
-  - **Curator** (trust_score ≥80 + reputation ≥90%): Instant approve/reject power
-  - **Admin** (manual only): Full system access
-- **Trust & Reputation System (Phase 2)**: Dynamic role calculation based on trust_score and reputation_percentage with:
-  - Trust adjustments per policy (uploads/reviews/social), auto-blacklist at trust ≤ 0
-  - Reputation with Laplace smoothing: (3 + successful) / (3 + total) * 100
-  - Delayed role upgrades (15m, double-check) and immediate downgrades
-  - Pending upgrades tracked on user, locked users temporarily forced to "user" role
-- **Service-to-Service Auth**: `X-Service-Token` header validation for admin trust adjustments.
-- **Content Report System (Phase 4)**: Jury oversight with edit-level reporting, auto-lock at 10+ trusted reporters, admin review workflow
-- **Session Management (Phase 5)**: Track active sessions with device info, last usage timestamps, and session revocation
-- **Health Endpoints (Phase 6)**: `/health` (liveness) and `/ready` (readiness with dependency checks) for AWS App Runner
-- **Redis Caching**: User info and token blacklist with TTL.
-- **Celery Worker**: Async email sending, avatar processing, and role upgrades with retry logic.
-- **Celery Beat**: Periodic cleanup of expired unverified users (daily schedule).
 
-## Documentation
+- **JWT Authentication**: RS256 (RSA) keys with access/refresh token rotation and reuse detection.
+- **RBAC & Governance**: 6-tier role system (User to Admin) driven by Trust Scores and Jury participation.
+- **Trust & Reputation**: Dynamic scoring based on user contributions and social behavior.
+- **Secure Media Pipeline**: Async avatar processing with ClamAV virus scanning (TCP/Instream).
+- **Rate Limiting**: Token bucket algorithm to prevent abuse on auth endpoints.
+- **Session Management**: Device tracking and remote session revocation.
+- **Service-to-Service Auth**: Secure inter-service communication via API keys.
 
-- [Debug Report (Dec 2025)](docs/DEBUG_REPORT_DEC_2025.md) - Detailed debugging walkthrough for ClamAV integration and related fixes
+## Tech Stack
 
-## Requirements
-- Python 3.11+
-- PostgreSQL 14+
-- Redis 7.0+
-- SMTP credentials (e.g., Mailtrap sandbox) for verification emails
+| Component | Technology |
+|-----------|------------|
+| **API** | FastAPI + Uvicorn |
+| **Database** | PostgreSQL + SQLAlchemy 2.x (async) |
+| **Cache** | Redis (Sessions & Token Blacklist) |
+| **Background Jobs** | Celery (Redis Broker/Backend) |
+| **Media Storage** | AWS S3 |
+| **Virus Scanning** | ClamAV (TCP Mode) |
 
-## Configuration
-Environment variables (see `.env` for examples):
-- **Database**: `DATABASE_URL`, `ALEMBIC_DATABASE_URL`
-- **Redis**: `REDIS_URL`
-- **JWT**: `JWT_PRIVATE_KEY_PATH`, `JWT_PUBLIC_KEY_PATH`, `JWT_ALGORITHM` (RS256), `JWT_ISSUER`, `JWT_AUDIENCE`
-- **Tokens**: `ACCESS_TOKEN_EXPIRE_MINUTES` (15), `REFRESH_TOKEN_TTL_DAYS` (7), `EMAIL_VERIFY_EXPIRE_MINUTES` (30), `UNVERIFIED_USER_EXPIRE_DAYS` (7)
-- **Rate Limits**: `RATE_LIMIT_LOGIN`, `RATE_LIMIT_REGISTER`, `RATE_LIMIT_REFRESH`, `RATE_LIMIT_VERIFY_SEND` (requests per minute per IP/domain/email)
-- **Email**: `MAIL_HOST`, `MAIL_PORT`, `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_FROM`, `EMAIL_VERIFY_BASE_URL`
-- **S3/Avatar**: `S3_MEDIA_BUCKET`, `S3_MEDIA_REGION`, `AVATAR_TARGET_SIZES` (e.g., "512,256,128,64")
-- **Celery**: `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `CELERY_TASK_DEFAULT_QUEUE`, `CELERY_TIMEZONE`
-- **Trust/Service Auth**: `SERVICE_API_KEY` (optional in dev), `ROLE_UPGRADE_DELAY_SECONDS` (default 900)
+## Quick Start (Local Development)
 
-## Setup
 ```bash
-pip install -r requirements.txt
-alembic -c alembic/alembic.ini upgrade head
+# 1. Copy environment template
+cp .env.example .env
+# Edit .env with your settings (DB, Redis, S3, SMTP)
+
+# 2. Start all services
+docker compose up --build
+
+# 3. Apply database migrations
+docker compose exec app alembic upgrade head
+
+# 4. Run tests
+docker compose exec app pytest tests/ -v
+
+# 5. Access documentation
+# API Docs: http://localhost:8000/docs
+# Frontend Tester: http://localhost:8000/test
 ```
 
-## Run
-App:
-```bash
-uvicorn app.main:app --reload
-```
-Celery worker:
-```bash
-celery -A app.celery_app worker -Q media,email,default -l info
-```
-Celery Beat (periodic tasks):
-```bash
-celery -A app.celery_app beat -l info
-```
+## API Endpoints Overview
 
-### Docker Compose
-Start all services (app, worker, beat, db, redis, clamav):
-```bash
-docker compose up -d
-```
+### Authentication (`/auth`)
+*   **Register/Login**: Standard JWT flows.
+*   **Refresh**: Secure cookie-based token rotation.
+*   **Verify Email**: Token-based email validation.
+*   **Sessions**: View and revoke active sessions.
+
+### Users & Profiles (`/users`)
+*   **Me**: Get current user details and permissions.
+*   **Search**: Lookup users by ID or username (public data only).
+*   **Avatars**: Presigned URL upload flow.
+
+### Trust & Roles (`/trust`)
+*   **Score**: View detailed trust and reputation metrics.
+*   **History**: Audit log of reputation changes.
+
+### System (`/system`)
+*   **Health**: Liveness (`/health`) and Readiness (`/ready`) probes.
 
 ## Periodic Tasks
-The service includes automated cleanup tasks via Celery Beat:
+Managed via **Celery Beat**:
+- `delete_expired_unverified_users`: Runs daily to clean up stale registrations.
 
-### Expired User Cleanup
-- **Task**: `app.tasks.cleanup.delete_expired_unverified_users`
-- **Schedule**: Every 24 hours (86400 seconds)
-- **Purpose**: Deletes users who didn't verify their email before `expires_at`
-- **Logic**: 
-  - Finds users where `expires_at <= now()` AND `email_verified_at IS NULL`
-  - Verified users have `expires_at` set to NULL (safe from deletion)
-  - Logs deleted user emails for audit trail
-- **Manual trigger**: 
-  ```bash
-  celery -A app.celery_app call app.tasks.cleanup.delete_expired_unverified_users
-  ```
+## Configuration
 
-## Tests
-Run all tests (78 tests, including RBAC, schema, trust, security, and report system tests):
-```bash
-pytest
-```
+See `.env.example` for all configuration options. Key settings:
 
-Run only RBAC system tests (22 tests):
-```bash
-pytest tests/test_rbac.py -v
-```
-
-Run only schema tests (8 tests):
-```bash
-pytest tests/test_user_schema.py -v
-```
-
-Run only trust system tests (18 tests):
-```bash
-pytest tests/test_trust.py -v
-```
-
-Run only trust security tests (10 tests - token blacklisting, cache invalidation):
-```bash
-pytest tests/test_trust_security.py -v
-```
-
-Run only report system tests (12 tests - Phase 4):
-```bash
-pytest tests/test_reports.py -v
-```
-
-Run SMTP integration test (skipped unless SMTP env vars are set):
-```bash
-pytest tests/test_email_integration.py -m integration
-```
-
-Register the custom mark to silence warnings by adding to `pytest.ini`:
-```ini
-[pytest]
-markers =
-    integration: integration tests requiring external services
-```
-
-## Notes
-- **RBAC System**: The jury-based RBAC implementation (Phase 1) includes 40+ scopes across 6 role tiers. Role calculation is automatic based on user trust_score and reputation_percentage, with blacklist override preventing all interactions.
-- **Email Verification**: Links use `EMAIL_VERIFY_BASE_URL`; ensure it matches your deployment URL in production.
-- **Token Blacklist**: Logged-out/rotated tokens are cached in Redis with TTL matching token expiration.
-- **Trust Endpoint Security**: Built-in rate limiting (10 calls/hour per user_id), automatic access token blacklisting on role changes, and cache invalidation ensure trust adjustments are secure and eventually consistent.
-- **Report System (Phase 4)**: Contributors can report specific edit actions (not just content). Auto-lock triggers at 10+ distinct trusted reporters. Only approved/pending reports count toward threshold (rejected reports excluded). Admin review required for all reports.
-- **Production SMTP**: Mailtrap sandbox has low rate limits. For production, use a dedicated SMTP service (e.g., AWS SES) with Celery retry backoff.
-- **Avatar Processing**: Async task resizes avatars to target sizes and updates user trust_score/reputation_percentage based on upload success.
+- **JWT**: `JWT_PRIVATE_KEY_PATH`, `JWT_PUBLIC_KEY_PATH`, `ACCESS_TOKEN_EXPIRE_MINUTES`.
+- **Trust**: `ROLE_UPGRADE_DELAY_SECONDS` (Debounce time for role promotions).
+- **Media**: `AVATAR_TARGET_SIZES` (Comma-separated pixel dimensions).

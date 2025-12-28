@@ -21,11 +21,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# TODO, move to env
 origins = [
     "http://127.0.0.1:5500",
     "http://localhost:5500",
     "http://127.0.0.1:8000",
     "http://localhost:8000",
+    "https://ppmrpzxpd4.ap-southeast-2.awsapprunner.com",
 ]
 
 app.add_middleware(

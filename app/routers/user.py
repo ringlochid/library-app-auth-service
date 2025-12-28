@@ -71,6 +71,10 @@ async def update_user(
             status_code=429,
             detail=f"Rate limit exceeded for user {user.id}. Try again later.",
         )
+    result = await db.execute(select(User).where(User.id == user.id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     is_name_changed = False
     if data.name:
         query = select(User).where(User.name == data.name)

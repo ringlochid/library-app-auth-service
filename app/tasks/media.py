@@ -109,6 +109,7 @@ def _ensure_key_and_user(key: str) -> uuid.UUID:
     return user_id
 
 
+# TODO: the size 512 sometimes doesn't work
 def _transform_image(
     file_path: str, header_content_type: str | None
 ) -> dict[int, dict[str, Any]]:

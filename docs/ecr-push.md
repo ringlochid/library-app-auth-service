@@ -55,6 +55,14 @@ aws ecs update-service \
   --region ap-southeast-2
 ```
 
+```bash
+aws ecs update-service \
+  --cluster library-auth-worker-cluster-rl \
+  --service library_auth_service_scheduled_tasks-service-lk5sab7r \
+  --force-new-deployment \
+  --region ap-southeast-2
+```
+
 ## Notes
 - Make sure the ECR repository exists before pushing
 - Create repo if needed: `aws ecr create-repository --repository-name library-app-auth-service --region ap-southeast-2`

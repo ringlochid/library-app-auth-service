@@ -1,4 +1,5 @@
-from pydantic import AnyUrl
+import os
+from pydantic import AnyUrl, field_validator, ValidationInfo
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,6 +9,19 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    BACKEND_CORS_ORIGINS: list[str] | str = []
+
+    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
+    @classmethod
+    def assemble_cors_origins(
+        cls, v: str | list[str], info: ValidationInfo
+    ) -> list[str] | str:
+        if isinstance(v, str) and not v.startswith("["):
+            return [i.strip() for i in v.split(",")]
+        elif isinstance(v, (list, str)):
+            return v
+        raise ValueError(v)
 
     DATABASE_URL: AnyUrl
     DATABASE_WORKER_URL: AnyUrl | None = None  # Separate URL for Celery workers

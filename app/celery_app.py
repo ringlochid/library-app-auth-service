@@ -8,7 +8,7 @@ broker_url = (
 
 backend_url = settings.CELERY_RESULT_BACKEND or "redis://localhost:6379/1"
 
-app = Celery("library_app", broker=broker_url, backend=backend_url)
+app = Celery("openshelves_auth", broker=broker_url, backend=backend_url)
 
 
 app.conf.update(

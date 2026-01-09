@@ -14,7 +14,7 @@ description: How to build and push Docker image to AWS ECR
 ```bash
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 REGION=ap-southeast-2
-REPO=library-auth-service
+REPO=openshelves-auth
 ECR_URI="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${REPO}"
 ```
 
@@ -41,24 +41,24 @@ docker push ${ECR_URI}:latest
 
 ## Quick One-Liner (after login)
 ```bash
-docker build -t library-auth-service . && \
-docker tag library-auth-service:latest ${ECR_URI}:latest && \
+docker build -t openshelves-auth . && \
+docker tag openshelves-auth:latest ${ECR_URI}:latest && \
 docker push ${ECR_URI}:latest
 ```
 
 ## ECS
 ```bash
 aws ecs update-service \
-  --cluster library-auth-worker-cluster-rl \
-  --service library-auth-service-worker-service-gne5k8x3 \
+  --cluster openshelves-cluster \
+  --service openshelves-auth-worker-task-service-f5e6bit3 \
   --force-new-deployment \
   --region ap-southeast-2
 ```
 
 ```bash
 aws ecs update-service \
-  --cluster library-auth-worker-cluster-rl \
-  --service library_auth_service_scheduled_tasks-service-lk5sab7r \
+  --cluster openshelves-cluster \
+  --service openshelves-auth-worker-schedule-service-izfruc94 \
   --force-new-deployment \
   --region ap-southeast-2
 ```

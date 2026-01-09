@@ -2,8 +2,6 @@
 Periodic cleanup tasks for database maintenance.
 """
 
-# TODO: Beat is not working, still tracking log in cloudwatch
-
 import asyncio
 import logging
 from datetime import datetime, timezone

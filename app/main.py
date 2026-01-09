@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy import text
 
+from app.settings import settings
 from app.database import AsyncSessionLocal
 from app.redis_client import close_redis, init_redis
 from app.routers import auth, user, reports
@@ -21,18 +22,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# TODO, move to env
-origins = [
-    "http://127.0.0.1:5500",
-    "http://localhost:5500",
-    "http://127.0.0.1:8000",
-    "http://localhost:8000",
-    "https://ppmrpzxpd4.ap-southeast-2.awsapprunner.com",
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=settings.BACKEND_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
